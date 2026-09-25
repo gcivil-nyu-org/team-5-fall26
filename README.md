@@ -12,7 +12,11 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-The sign-up page is at http://127.0.0.1:8000/accounts/register/.
+The sign-up page is at http://127.0.0.1:8000/accounts/register/ and the login
+page is at http://127.0.0.1:8000/accounts/login/.
+
+In development, emails such as password reset links aren't actually sent;
+they're printed in the terminal running `runserver`.
 
 ## Checks
 

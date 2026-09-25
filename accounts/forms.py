@@ -1,6 +1,6 @@
-"""Forms for creating user accounts."""
+"""Forms for creating user accounts and logging in."""
 
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 
 from .models import User
 
@@ -23,3 +23,23 @@ class RegistrationForm(UserCreationForm):
         if User.objects.filter(email__iexact=email).exists():
             raise self.instance.unique_error_message(User, ["email"])
         return email
+
+
+class LoginForm(AuthenticationForm):
+    """Login form that takes an email address or a username, and a password."""
+
+    error_messages = {
+        **AuthenticationForm.error_messages,
+        "invalid_login": (
+            "Please enter a correct email or username and password. "
+            "Note that the password is case-sensitive."
+        ),
+    }
+
+    def __init__(self, request=None, *args, **kwargs):
+        """Relabel the username field and let it fit a full email address."""
+        super().__init__(request, *args, **kwargs)
+        field = self.fields["username"]
+        field.label = "Email or username"
+        field.max_length = User._meta.get_field("email").max_length
+        field.widget.attrs["maxlength"] = field.max_length

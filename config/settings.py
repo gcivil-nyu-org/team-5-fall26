@@ -86,6 +86,12 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 
+AUTHENTICATION_BACKENDS = ["accounts.backends.EmailOrUsernameBackend"]
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -127,3 +133,11 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# Email
+# https://docs.djangoproject.com/en/5.2/topics/email/
+
+# Emails, such as password reset links, are printed to the runserver console.
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "Team 5 <noreply@team5.local>"

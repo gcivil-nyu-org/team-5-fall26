@@ -1,6 +1,5 @@
 """Tests for the registration page."""
 
-from django.conf import settings
 from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
@@ -42,14 +41,18 @@ class RegisterViewTests(TestCase):
         for name in ("username", "email", "display_name", "password1", "password2"):
             self.assertContains(response, f'name="{name}"')
         self.assertContains(response, "Already have an account?")
-        self.assertContains(response, f'href="{settings.LOGIN_URL}"')
+        self.assertContains(response, f'href="{reverse("login")}"')
+
+    def test_login_link_opens_the_login_page(self):
+        """The "Log in" link on the registration page leads to a working page."""
+        response = self.client.get(self.client.get(self.url).context["login_url"])
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "accounts/login.html")
 
     def test_valid_submission_creates_account_and_redirects_to_login(self):
         """A valid submission saves the user and redirects with a success message."""
         response = self.client.post(self.url, self.data)
-        self.assertRedirects(
-            response, settings.LOGIN_URL, fetch_redirect_response=False
-        )
+        self.assertRedirects(response, reverse("login"))
         user = User.objects.get(username="newuser")
         self.assertEqual(user.email, "newuser@example.com")
         self.assertEqual(user.display_name, "New User")
