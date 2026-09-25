@@ -12,7 +12,7 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-The sign-up page is at http://127.0.0.1:8000/accounts/register/.
+The landing page is at http://127.0.0.1:8000/. The sign-up page is at http://127.0.0.1:8000/accounts/register/.
 
 ## Checks
 
