@@ -127,3 +127,16 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# ===== Authentication customizations =====
+AUTHENTICATION_BACKENDS = [
+    "accounts.auth_backends.EmailOrUsernameModelBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+LOGIN_URL = "login"
+# Landing page not yet merged into develop.
+# This redirect will function after the landing page PR is merged.
+LOGIN_REDIRECT_URL = "landing"
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False

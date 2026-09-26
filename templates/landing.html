@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Plans</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width:800px;
+            margin:3rem auto;
+            padding:0 1rem;
+        }
+        .card{
+            border:1px solid #ddd;
+            padding:1rem;
+            border-radius:8px;
+            margin:0.8rem 0;
+        }
+        .logout{
+            display:inline-block;
+            margin-bottom:2rem;
+            padding:0.5rem 1rem;
+            background:#222;
+            color:white;
+            text-decoration:none;
+            border-radius:6px;
+        }
+    </style>
+</head>
+<body>
+{% if user.is_authenticated %}
+    <form method="post" action="{% url 'logout' %}" style="display: inline;">
+        {% csrf_token %}
+        <button type="submit" class="logout" style="border:none;cursor:pointer;">Log Out</button>
+    </form>
+    <h1>Welcome back, {{ user.display_name|default:user.username }}</h1>
+    <h2>Your Saved Events & Personal Plans</h2>
+    <div class="card">
+        <p>Event placeholder: NYC events, Friday 2PM</p>
+    </div>
+    <div class="card">
+        <p>Plan placeholder: Gym every Monday & Wednesday</p>
+    </div>
+    <p><em>Event storage backend to be implemented later.</em></p>
+{% else %}
+    <h1>Welcome</h1>
+    <p>Please log in to view your saved events and plans.</p>
+    <p><a href="{% url 'login' %}">Go to Login</a></p>
+{% endif %}
+</body>
+</html>
