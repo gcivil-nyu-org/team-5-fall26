@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log In</title>
+    <style>
+        .login-container {
+            max-width: 420px;
+            margin: 5rem auto;
+            padding: 2.2rem;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .login-container:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+        }
+        .error-text {
+            color: #b91c1c;
+        }
+        .link-group {
+            margin-top: 1.2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        button {
+            margin-top: 1rem;
+            padding: 0.6rem 1rem;
+            cursor: pointer;
+        }
+        .loading {
+            display: none;
+            margin-top: 0.6rem;
+            color: #444;
+        }
+        .login-container.loading-state .loading {
+            display: block;
+        }
+        /* Countdown text style */
+        #countdown {
+            color: #b91c1c;
+            font-weight: bold;
+            margin: 0.8rem 0;
+        }
+    </style>
+</head>
+<body>
+<div class="login-container" id="loginBox">
+    <h2>Log In to Your Account</h2>
+    {% if messages %}
+        {% for message in messages %}
+            <p class="error-text">{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+
+    <!-- Countdown display area, hidden if not locked -->
+    <div id="countdown"></div>
+
+    <form method="POST" id="loginForm">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" id="submitBtn">Log In</button>
+        <div class="loading">Logging in...</div>
+    </form>
+
+    <div class="link-group">
+        <a href="{% url 'password_reset' %}">Forgot Password?</a>
+        <a href="{% url 'register' %}">Create New Account</a>
+    </div>
+</div>
+
+<script>
+// Get lock expiry timestamp passed from backend
+const lockExpiry = {{ lock_expiry|default:"null" }};
+const countdownElement = document.getElementById("countdown");
+const loginForm = document.getElementById("loginForm");
+const submitButton = document.getElementById("submitBtn");
+const loginBox = document.getElementById("loginBox");
+
+/**
+ * Format remaining seconds into MM:SS
+ * @param {number} seconds - remaining time in seconds
+ * @returns {string} formatted time string
+ */
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    const mStr = String(mins).padStart(2, '0');
+    const sStr = String(secs).padStart(2, '0');
+    return `${mStr}:${sStr}`;
+}
+
+/**
+ * Update countdown timer every second
+ * When timer hits 0, unlock form and hide countdown
+ */
+function startCountdown() {
+    if (!lockExpiry) return;
+
+    function tick() {
+        const now = Date.now() / 1000; // current Unix timestamp in seconds
+        const remaining = lockExpiry - now;
+
+        if (remaining <= 0) {
+            countdownElement.textContent = "";
+            submitButton.disabled = false;
+            return;
+        }
+        // Disable form submit while locked
+        submitButton.disabled = true;
+        countdownElement.textContent = `Please wait ${formatTime(remaining)} before retrying.`;
+        setTimeout(tick, 1000);
+    }
+    tick();
+}
+
+// Login loading animation
+loginForm.addEventListener("submit", () => {
+    loginBox.classList.add("loading-state");
+});
+
+// Start countdown on page load
+window.onload = startCountdown;
+</script>
+</body>
+</html>
