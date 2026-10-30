@@ -1,6 +1,7 @@
 """Tests for pair-level attendee messaging."""
 
 from datetime import datetime
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -8,6 +9,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import ContactPermission
+from events.contact_services import create_contact_request
+from events.forms import DirectMessageForm, EventPostForm, EventReplyForm
 from events.models import (
     ContactRequest,
     Conversation,
@@ -76,6 +79,33 @@ class MessagingViewTests(TestCase):
             reverse("message_user", args=[self.recipient.pk]),
         )
 
+    def test_profile_self_and_missing_profile_are_handled(self):
+        own_profile = self.client.get(
+            reverse("public_profile", args=[self.sender.username])
+        )
+        missing_profile = self.client.get(
+            reverse("public_profile", args=["no-such-user"])
+        )
+
+        self.assertFalse(own_profile.context["can_message"])
+        self.assertEqual(missing_profile.status_code, 404)
+
+    def test_cannot_start_conversation_with_self(self):
+        response = self.client.get(reverse("message_user", args=[self.sender.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_contact_request_requires_an_eligible_recipient(self):
+        contact_request, created = create_contact_request(
+            self.event,
+            self.sender,
+            self.outsider,
+            "Hello",
+        )
+
+        self.assertIsNone(contact_request)
+        self.assertFalse(created)
+
     def test_hidden_profile_requires_accepted_contact_to_open_messages(self):
         self.recipient.share_profile_with_attendees = False
         self.recipient.save(update_fields=["share_profile_with_attendees"])
@@ -112,6 +142,39 @@ class MessagingViewTests(TestCase):
         notification = Notification.objects.get(contact_request=contact_request)
         self.assertEqual(notification.recipient, self.recipient)
         self.assertEqual(notification.event, self.event)
+
+    def test_ineligible_contact_request_reports_that_shared_event_is_required(self):
+        with patch(
+            "events.messaging_views.create_contact_request",
+            return_value=(None, False),
+        ):
+            response = self.client.post(
+                reverse("message_user", args=[self.recipient.pk]),
+                {"event": self.event.pk, "message": "Hello"},
+                follow=True,
+            )
+
+        self.assertContains(
+            response,
+            "Choose an upcoming event that you both are interested in.",
+        )
+
+    def test_duplicate_pending_contact_request_is_not_created_again(self):
+        existing = ContactRequest.objects.create(
+            event=self.event,
+            sender=self.sender,
+            recipient=self.recipient,
+        )
+
+        response = self.client.post(
+            reverse("message_user", args=[self.recipient.pk]),
+            {"event": self.event.pk, "message": "A duplicate"},
+            follow=True,
+        )
+
+        self.assertContains(response, "already awaiting a response")
+        self.assertEqual(ContactRequest.objects.count(), 1)
+        self.assertEqual(existing.status, ContactRequest.Status.PENDING)
 
     def test_open_contact_permission_starts_an_accepted_conversation(self):
         self.recipient.contact_permission = ContactPermission.OPEN
@@ -221,6 +284,8 @@ class MessagingViewTests(TestCase):
             {"body": "Not yet"},
         )
         self.assertEqual(response.status_code, 404)
+        response = self.client.get(reverse("conversation_updates", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
         self.assertEqual(contact_request.status, ContactRequest.Status.PENDING)
         self.assertFalse(DirectMessage.objects.exists())
 
@@ -288,6 +353,11 @@ class MessagingViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        negative_cursor = self.client.get(
+            reverse("conversation_updates", args=[thread.pk]),
+            {"after": "-1"},
+        )
+        self.assertEqual(negative_cursor.status_code, 400)
         self.client.force_login(self.outsider)
         response = self.client.get(
             reverse("conversation_updates", args=[thread.pk]),
@@ -308,6 +378,35 @@ class MessagingViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["message"]["body"], "Sent live")
         self.assertEqual(DirectMessage.objects.get().sender, self.sender)
+
+    def test_invalid_ajax_send_returns_form_errors(self):
+        self.accept_contact()
+        thread, _ = Conversation.get_or_create_for_users(self.sender, self.recipient)
+
+        response = self.client.post(
+            reverse("conversation", args=[thread.pk]),
+            {"body": "   "},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("errors", response.json())
+        self.assertEqual(DirectMessage.objects.count(), 0)
+
+    def test_whitespace_only_community_and_message_forms_are_invalid(self):
+        cases = (
+            (DirectMessageForm, "Your message cannot be empty."),
+            (EventPostForm, "Your post cannot be empty."),
+            (EventReplyForm, "Your reply cannot be empty."),
+        )
+        for form_class, expected_error in cases:
+            with self.subTest(form=form_class.__name__):
+                form = form_class(data={"body": "   "})
+                self.assertFalse(form.is_valid())
+                self.assertEqual(
+                    form.errors.as_data()["body"][0].message,
+                    expected_error,
+                )
 
     def test_messages_navigation_shows_unread_count_not_notification_count(self):
         self.accept_contact()

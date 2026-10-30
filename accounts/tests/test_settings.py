@@ -72,6 +72,20 @@ class AccountSettingsTests(TestCase):
         self.assertContains(response, 'maxlength="300"')
         self.assertContains(response, f'href="{reverse("landing")}"')
 
+    def test_new_account_defaults_to_approval_and_can_enable_direct_contact(self):
+        """New forms default to approval, and saved opt-in enables direct contact."""
+        new_user_form = AccountSettingsForm(instance=User())
+        self.assertFalse(new_user_form.fields["allow_direct_contact"].initial)
+
+        form = AccountSettingsForm(
+            data={**self.data, "allow_direct_contact": "on"},
+            instance=self.user,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        updated_user = form.save()
+
+        self.assertEqual(updated_user.contact_permission, "open")
+
     def test_anonymous_get_and_post_require_login(self):
         """Visitors cannot read or change a profile without signing in."""
         self.client.logout()

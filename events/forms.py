@@ -120,6 +120,10 @@ class NotifyAttendeesForm(forms.Form):
 class EventPostForm(forms.ModelForm):
     """Validate a new discussion post."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["body"].strip = False
+
     class Meta:
         model = EventPost
         fields = ("body",)
@@ -143,6 +147,10 @@ class EventPostForm(forms.ModelForm):
 
 class EventReplyForm(forms.ModelForm):
     """Validate a reply to an event discussion post."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["body"].strip = False
 
     class Meta:
         model = EventReply
@@ -215,6 +223,7 @@ class DirectMessageForm(forms.Form):
     body = forms.CharField(
         label="Message",
         max_length=5000,
+        strip=False,
         widget=forms.Textarea(
             attrs={
                 "rows": 2,

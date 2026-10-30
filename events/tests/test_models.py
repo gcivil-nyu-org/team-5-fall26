@@ -2,7 +2,16 @@
 
 from django.test import TestCase
 
-from events.models import Event
+from accounts.models import User
+from events.models import (
+    ContactRequest,
+    Conversation,
+    DirectMessage,
+    Event,
+    EventInterest,
+    EventPost,
+    EventReply,
+)
 
 
 class EventModelTests(TestCase):
@@ -64,3 +73,41 @@ class EventModelTests(TestCase):
         self.assertTrue(cancelled.is_cancelled)
         self.assertTrue(cancelled_us.is_cancelled)
         self.assertFalse(running.is_cancelled)
+
+    def test_community_and_message_models_have_useful_strings(self):
+        """Admin-facing records identify their associated users and content."""
+        sender = User.objects.create_user("model-sender", "sender@example.com")
+        recipient = User.objects.create_user("model-recipient", "recipient@example.com")
+        outsider = User.objects.create_user("model-outsider", "outsider@example.com")
+        event = Event.objects.create(
+            guid="community-models",
+            title="Community Walk",
+            content_hash="i" * 64,
+        )
+        interest = EventInterest.objects.create(event=event, user=sender)
+        request = ContactRequest.objects.create(
+            event=event,
+            sender=sender,
+            recipient=recipient,
+        )
+        conversation, _ = Conversation.get_or_create_for_users(sender, recipient)
+        message = DirectMessage.objects.create(
+            conversation=conversation,
+            sender=sender,
+            body="Hello",
+        )
+        post = EventPost.objects.create(event=event, author=sender, body="A post")
+        reply = EventReply.objects.create(post=post, author=recipient, body="A reply")
+
+        self.assertEqual(str(interest), f"{sender} — Interested — {event}")
+        self.assertEqual(str(request), f"{sender} → {recipient} (pending)")
+        self.assertIsNone(conversation.other_participant(outsider))
+        with self.assertRaises(ValueError):
+            Conversation.get_or_create_for_users(sender, sender)
+        self.assertEqual(str(conversation), f"Conversation: {sender} ↔ {recipient}")
+        self.assertEqual(
+            str(message),
+            f"Message from {sender} in conversation {conversation.pk}",
+        )
+        self.assertEqual(str(post), f"Post by {sender} on {event}")
+        self.assertEqual(str(reply), f"Reply by {recipient} on post {post.pk}")

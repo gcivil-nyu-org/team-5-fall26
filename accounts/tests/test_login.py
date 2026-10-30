@@ -1,6 +1,7 @@
 """Tests for the login, logout and home pages."""
 
 from django.test import TestCase
+from django.core.cache import cache
 from django.urls import reverse
 
 from accounts.forms import LoginForm
@@ -69,6 +70,13 @@ class LoginViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Invalid credentials.")
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_blank_username_uses_submitted_value_for_attempt_tracking(self):
+        """An invalid blank username still increments the login attempt counter."""
+        response = self.client.post(self.url, {"username": "  ", "password": "bad"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(cache.get("login_attempts:"), 1)
 
     def test_logged_in_user_is_sent_home(self):
         """
