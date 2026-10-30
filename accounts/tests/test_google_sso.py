@@ -6,7 +6,6 @@ from django.conf import settings
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-
 # A harmless test-only OAuth client; network requests to Google are not made.
 GOOGLE_TEST_PROVIDERS = {
     "google": {
