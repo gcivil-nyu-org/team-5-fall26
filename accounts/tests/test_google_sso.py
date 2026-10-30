@@ -68,20 +68,16 @@ class GoogleSSOTests(TestCase):
         params = parse_qs(location.query)
         self.assertEqual(location.scheme, "https")
         self.assertEqual(location.netloc, "accounts.google.com")
-        self.assertEqual(
-            params["client_id"], ["test-client.apps.googleusercontent.com"]
-        )
+        expected_client_id = "test-client.apps.googleusercontent.com"
+        self.assertEqual(params["client_id"], [expected_client_id])
         self.assertEqual(params["code_challenge_method"], ["S256"])
         self.assertTrue(params["code_challenge"][0])
         self.assertTrue(params["state"][0])
-        self.assertEqual(
-            params["redirect_uri"],
-            ["http://testserver/accounts/google/login/callback/"],
-        )
+        callback_url = "http://testserver/accounts/google/login/callback/"
+        self.assertEqual(params["redirect_uri"], [callback_url])
 
     def test_google_token_storage_disabled(self):
         """No Google access/refresh tokens should be persisted in our database."""
         self.assertFalse(settings.SOCIALACCOUNT_STORE_TOKENS)
-        self.assertTrue(
-            settings.SOCIALACCOUNT_PROVIDERS["google"]["OAUTH_PKCE_ENABLED"]
-        )
+        provider_config = settings.SOCIALACCOUNT_PROVIDERS["google"]
+        self.assertTrue(provider_config["OAUTH_PKCE_ENABLED"])
