@@ -45,9 +45,7 @@ class GoogleSSOTests(TestCase):
             with self.subTest(page=page):
                 response = self.client.get(reverse(page))
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(
-                    response, 'action="/accounts/google/login/"'
-                )
+                self.assertContains(response, 'action="/accounts/google/login/"')
                 self.assertContains(response, 'name="csrfmiddlewaretoken"')
                 self.assertContains(response, "Google")
 
@@ -63,9 +61,7 @@ class GoogleSSOTests(TestCase):
 
         self.assertEqual(client.post(google_login).status_code, 403)
 
-        response = client.post(
-            google_login, HTTP_X_CSRFTOKEN=csrf_token
-        )
+        response = client.post(google_login, HTTP_X_CSRFTOKEN=csrf_token)
         self.assertEqual(response.status_code, 302)
 
         location = urlparse(response["Location"])
@@ -86,4 +82,6 @@ class GoogleSSOTests(TestCase):
     def test_google_token_storage_disabled(self):
         """No Google access/refresh tokens should be persisted in our database."""
         self.assertFalse(settings.SOCIALACCOUNT_STORE_TOKENS)
-        self.assertTrue(settings.SOCIALACCOUNT_PROVIDERS["google"]["OAUTH_PKCE_ENABLED"])
+        self.assertTrue(
+            settings.SOCIALACCOUNT_PROVIDERS["google"]["OAUTH_PKCE_ENABLED"]
+        )

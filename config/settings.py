@@ -197,7 +197,7 @@ GOOGLE_OAUTH_ENABLED = bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRE
 
 # Keep the built-in registration/login views. allauth handles Google OAuth only.
 # Google must confirm the email before it can authenticate an existing local
-# account. A linked social account is identified by Google\u0027s stable provider ID.
+# account. A linked social account is identified by Google's stable provider ID.
 SOCIALACCOUNT_LOGIN_ON_GET = False
 SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_EMAIL_REQUIRED = True
@@ -223,4 +223,3 @@ if GOOGLE_OAUTH_ENABLED:
 # Google receives an HTTPS redirect_uri instead of the internal HTTP URL.
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-
