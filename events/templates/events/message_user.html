@@ -34,7 +34,7 @@
             {% endif %}
         </section>
         {% elif has_shared_events %}
-        <p>Send a contact request to start a conversation. You can reply after the recipient accepts.</p>
+        <p>Send a contact request about an event you both like or related events with matching interests. You can reply after the recipient accepts.</p>
         <form class="message-form" method="post">
             {% csrf_token %}
             {{ form.non_field_errors }}
@@ -51,7 +51,7 @@
             <button type="submit">Send Contact Request</button>
         </form>
         {% else %}
-        <p class="empty-state">You need to share an upcoming event with {{ recipient.get_display_name }} before requesting to connect.</p>
+        <p class="empty-state">You need to mark an upcoming event as Interested and share that event or a related activity with {{ recipient.get_display_name }} before requesting to connect.</p>
         {% endif %}
     </main>
     {% include "chatbot/widget.html" %}
