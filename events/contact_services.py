@@ -5,7 +5,7 @@ from django.db import transaction
 from accounts.ban_services import require_unbanned_user
 from accounts.models import ContactPermission, User
 
-from .models import ContactRequest, Conversation, Event, EventInterest
+from .models import ContactRequest, Conversation, EventInterest
 from .notifications import notify_contact_request
 from .similar_interests import available_event, public_match_for_event
 
