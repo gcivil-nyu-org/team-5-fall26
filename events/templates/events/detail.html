@@ -910,11 +910,14 @@
                     {% for suggestion in similar_interest_users %}
                         <article class="contact-request-card">
                             <h4>
-                                <a href="{% url 'public_profile' username=suggestion.user.username %}">
+                                <a href="{% url 'public_profile' username=suggestion.user.username %}?from_event={{ event.pk }}">
                                     {{ suggestion.user.get_display_name }}
                                 </a>
                             </h4>
                             <p>Shared interest: {{ suggestion.shared_interest }}</p>
+                            <p>
+                                <a href="{% url 'message_user' suggestion.user.pk %}">Connect</a>
+                            </p>
                         </article>
                     {% endfor %}
                 </div>
