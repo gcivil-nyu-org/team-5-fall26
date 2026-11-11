@@ -119,14 +119,14 @@ def contactable_event_reasons(sender, recipient):
         interests__user=sender,
         interests__status=EventInterest.Status.INTERESTED,
         status=Event.Status.UPCOMING,
-    ).distinct()
+    )
     recipient_events = [
         event
         for event in Event.objects.filter(
             interests__user=recipient,
             interests__status=EventInterest.Status.INTERESTED,
             status=Event.Status.UPCOMING,
-        ).distinct()
+        )
         if available_event(event)
     ]
     followed_ids = {event.pk for event in recipient_events}
@@ -151,9 +151,7 @@ def contactable_event_reasons(sender, recipient):
 def contactable_source_events(sender, recipient):
     """Return the sender's events eligible for a new contact request."""
     reasons = contactable_event_reasons(sender, recipient)
-    return Event.objects.filter(pk__in=reasons).order_by(
-        "start_time", "title", "pk"
-    )
+    return Event.objects.filter(pk__in=reasons).order_by("start_time", "title", "pk")
 
 
 def related_interest_between_users(sender, recipient):
