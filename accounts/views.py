@@ -16,6 +16,11 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, UpdateView
 
 from events.models import ContactRequest, Event
+from events.similar_interests import (
+    contactable_source_events,
+    public_match_for_event,
+    related_interest_between_users,
+)
 from .ban_services import get_active_ban
 from .forms import AccountSettingsForm, LoginForm, RegistrationForm
 
@@ -113,19 +118,33 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             has_pending_request = pair_requests.filter(
                 status=ContactRequest.Status.PENDING
             ).exists()
-            has_shared_upcoming_event = (
-                Event.objects.filter(
-                    status=Event.Status.UPCOMING,
-                    interests__user=self.request.user,
-                )
-                .filter(interests__user=profile_user)
-                .exists()
+            # A person can request contact about a shared event, or a
+            # genuinely related event when the recipient opted into discovery.
+            contact_events = contactable_source_events(
+                self.request.user, profile_user
             )
             context["can_message"] = (
-                has_accepted_request or has_pending_request or has_shared_upcoming_event
+                has_accepted_request
+                or has_pending_request
+                or contact_events.exists()
+            )
+
+            # A suggested-profile link carries only the public source event
+            # id. Revalidate that event and the recipient's current consent
+            # before displaying the relevant category on this profile.
+            related_label = None
+            from_event = self.request.GET.get("from_event", "")
+            if from_event.isascii() and from_event.isdecimal() and len(from_event) < 18:
+                event = Event.objects.filter(pk=int(from_event)).first()
+                if event is not None:
+                    related_label = public_match_for_event(event, profile_user)
+            context["similar_interest_label"] = (
+                related_label
+                or related_interest_between_users(self.request.user, profile_user)
             )
         else:
             context["can_message"] = False
+            context["similar_interest_label"] = None
 
         # No past_events or attendance statistics are added
         # because actual attendance data has not been confirmed.
