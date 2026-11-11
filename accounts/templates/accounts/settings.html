@@ -341,6 +341,30 @@
           </div>
         {% endif %}
       </div>
+
+      <div class="settings-field">
+        <label
+          class="privacy-option"
+          for="{{ form.discoverable_for_similar_events.id_for_label }}"
+        >
+          {{ form.discoverable_for_similar_events }}
+          <span>
+            <span class="option-title">
+              Show my public profile for similar events
+            </span>
+            <span class="option-description">
+              People browsing events with similar activities may see your
+              public profile and a shared event category. This only works if
+              profile sharing above is enabled. You can turn it off anytime.
+            </span>
+          </span>
+        </label>
+        {% if form.discoverable_for_similar_events.errors %}
+          <div class="field-errors">
+            {{ form.discoverable_for_similar_events.errors }}
+          </div>
+        {% endif %}
+      </div>
     </section>
 
     <section class="settings-section">
