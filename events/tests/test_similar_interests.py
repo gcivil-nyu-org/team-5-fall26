@@ -9,7 +9,13 @@ from django.urls import reverse
 from accounts.forms import AccountSettingsForm
 from accounts.models import User
 from events.contact_services import create_contact_request
-from events.models import ContactRequest, Event, EventInterest, Notification, Registration
+from events.models import (
+    ContactRequest,
+    Event,
+    EventInterest,
+    Notification,
+    Registration,
+)
 from events.similar_interests import (
     category_query,
     category_tags,
@@ -313,7 +319,7 @@ class SimilarInterestDiscoveryTests(TestCase):
             reverse("public_profile", args=[self.runner.username])
         )
         self.assertContains(profile, "Send Message")
-        self.assertContains(profile, "Related event interest:") 
+        self.assertContains(profile, "Related event interest:")
 
         url = reverse("message_user", args=[self.runner.pk])
         start = self.client.get(url)
@@ -327,8 +333,8 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.assertEqual(request.sender, self.viewer)
         self.assertEqual(request.recipient, self.runner)
         self.assertEqual(request.status, ContactRequest.Status.PENDING)
-        self.assertEqual(Notification.objects.get(contact_request=request).recipient,
-                         self.runner)
+        notification = Notification.objects.get(contact_request=request)
+        self.assertEqual(notification.recipient, self.runner)
 
     def test_similar_contact_refuses_unmarked_sender_and_unrelated_context(self):
         """The sender must have marked the source event as interesting."""
