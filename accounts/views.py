@@ -123,10 +123,8 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             contact_events = contactable_source_events(
                 self.request.user, profile_user
             )
-            context["can_message"] = (
-                has_accepted_request
-                or has_pending_request
-                or contact_events.exists()
+            context["can_message"] = bool(
+                has_accepted_request or has_pending_request or contact_events.exists()
             )
 
             # A suggested-profile link carries only the public source event
@@ -138,10 +136,11 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
                 event = Event.objects.filter(pk=int(from_event)).first()
                 if event is not None:
                     related_label = public_match_for_event(event, profile_user)
-            context["similar_interest_label"] = (
-                related_label
-                or related_interest_between_users(self.request.user, profile_user)
-            )
+            if not related_label:
+                related_label = related_interest_between_users(
+                    self.request.user, profile_user
+                )
+            context["similar_interest_label"] = related_label
         else:
             context["can_message"] = False
             context["similar_interest_label"] = None
