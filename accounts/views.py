@@ -120,9 +120,7 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             ).exists()
             # A person can request contact about a shared event, or a
             # genuinely related event when the recipient opted into discovery.
-            contact_events = contactable_source_events(
-                self.request.user, profile_user
-            )
+            contact_events = contactable_source_events(self.request.user, profile_user)
             context["can_message"] = bool(
                 has_accepted_request or has_pending_request or contact_events.exists()
             )
