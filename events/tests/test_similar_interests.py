@@ -42,10 +42,10 @@ class CategoryMatchingTests(SimpleTestCase):
     """Only genuine, human-readable event categories match."""
 
     def test_category_tags_ignore_empty_segments(self):
-        self.assertEqual(category_tags(" Sports | | Basketball/Netball "), [
-            "Sports",
-            "Basketball/Netball",
-        ])
+        self.assertEqual(
+            category_tags(" Sports | | Basketball/Netball "),
+            ["Sports", "Basketball/Netball"],
+        )
         self.assertEqual(category_tags(""), [])
 
     def test_terms_expand_using_existing_groups(self):
