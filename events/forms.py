@@ -205,11 +205,11 @@ class ContactRequestForm(forms.ModelForm):
 
 
 class ContactStartForm(forms.Form):
-    """Choose a shared upcoming event and optionally introduce yourself."""
+    """Choose a shared or related upcoming event and introduce yourself."""
 
     event = forms.ModelChoiceField(
         queryset=Event.objects.none(),
-        label="Shared event",
+        label="Event to connect about",
     )
     message = forms.CharField(
         label="Introduction (optional)",
