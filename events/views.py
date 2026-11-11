@@ -512,7 +512,11 @@ class EventDetailView(DetailView):
         # Only signed-in, unbanned viewers see related-event discovery.
         # The service returns opted-in public profiles, not private details.
         context["can_explore_similar_interests"] = (
-            is_authenticated and unbanned and event.is_open and bool(event.categories)
+            is_authenticated
+            and unbanned
+            and event.is_open
+            and not event.is_cancelled
+            and bool(event.categories)
         )
         context["similar_interest_users"] = (
             find_similar_interest_users(event, viewer=user)
