@@ -1,11 +1,15 @@
 """Privacy, matching, and page tests for event-interest discovery (#54)."""
 
+from datetime import timedelta
+
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 from django.urls import reverse
 
 from accounts.forms import AccountSettingsForm
 from accounts.models import User
-from events.models import Event, EventInterest, Registration
+from events.contact_services import create_contact_request
+from events.models import ContactRequest, Event, EventInterest, Notification, Registration
 from events.similar_interests import (
     category_query,
     category_tags,
@@ -15,14 +19,15 @@ from events.similar_interests import (
 )
 
 
-def make_event(guid, categories, status=Event.Status.UPCOMING):
+def make_event(guid, categories, status=Event.Status.UPCOMING, **fields):
     """Create an event with public category labels."""
     return Event.objects.create(
         guid=guid,
-        title=guid,
+        title=fields.pop("title", guid),
         categories=categories,
         status=status,
         content_hash="e" * 64,
+        **fields,
     )
 
 
@@ -248,3 +253,128 @@ class SimilarInterestDiscoveryTests(TestCase):
         response = self.client.get(reverse("account_settings"))
         self.assertContains(response, 'name="discoverable_for_similar_events"')
         self.assertContains(response, "Show my public profile for similar events")
+
+    def test_stale_upcoming_event_is_not_suggested(self):
+        """An outdated status is not enough to suggest a past event."""
+        self.other_sports.start_time = timezone.now() - timedelta(days=2)
+        self.other_sports.save(update_fields=["start_time"])
+        self.assertEqual(self.suggestions(), [])
+
+    def test_cancelled_feed_event_is_not_suggested(self):
+        """Imported cancellations in the event title remain hidden."""
+        self.other_sports.title = "  CANCELED Football practice"
+        self.other_sports.save(update_fields=["title"])
+        self.assertEqual(self.suggestions(), [])
+
+    def test_stale_or_cancelled_source_event_hides_similar_section(self):
+        """Related discovery only appears on events still happening."""
+        self.event.title = "CANCELLED: basketball"
+        self.event.save(update_fields=["title"])
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("event_detail", args=[self.event.pk]))
+        self.assertNotContains(response, "People with Similar Interests")
+
+        self.event.title = "basketball"
+        self.event.start_time = timezone.now() - timedelta(days=2)
+        self.event.save(update_fields=["title", "start_time"])
+        response = self.client.get(reverse("event_detail", args=[self.event.pk]))
+        self.assertNotContains(response, "People with Similar Interests")
+
+    def test_profile_link_shows_related_interest_without_exposing_event(self):
+        """A recommended profile explains the verified public category."""
+        self.client.force_login(self.viewer)
+        url = reverse("public_profile", args=[self.runner.username])
+        response = self.client.get(url, {"from_event": self.event.pk})
+        self.assertContains(response, "Related event interest:")
+        self.assertContains(response, "Sports")
+        self.assertNotContains(response, self.runner.email)
+        self.assertNotContains(response, self.other_sports.title)
+
+    def test_profile_referral_respects_opt_out_and_invalid_ids(self):
+        """A forged event id or revoked consent does not reveal a match."""
+        self.client.force_login(self.viewer)
+        url = reverse("public_profile", args=[self.runner.username])
+        for ref in ("abc", "-3", "999999999999999999999999", "0"):
+            with self.subTest(ref=ref):
+                response = self.client.get(url, {"from_event": ref})
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, "Related event interest:")
+
+        self.runner.discoverable_for_similar_events = False
+        self.runner.save(update_fields=["discoverable_for_similar_events"])
+        response = self.client.get(url, {"from_event": self.event.pk})
+        self.assertNotContains(response, "Related event interest:")
+
+    def test_similar_interest_contact_request_from_profile(self):
+        """Two different events can lead to a permitted contact request."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        self.client.force_login(self.viewer)
+        profile = self.client.get(
+            reverse("public_profile", args=[self.runner.username])
+        )
+        self.assertContains(profile, "Send Message")
+        self.assertContains(profile, "Related event interest:") 
+
+        url = reverse("message_user", args=[self.runner.pk])
+        start = self.client.get(url)
+        self.assertContains(start, "Event to connect about")
+        self.assertContains(start, self.event.title)
+        self.assertNotContains(start, self.other_sports.title)
+        self.client.post(url, {"event": self.event.pk, "message": "Join me?"})
+
+        request = ContactRequest.objects.get()
+        self.assertEqual(request.event, self.event)
+        self.assertEqual(request.sender, self.viewer)
+        self.assertEqual(request.recipient, self.runner)
+        self.assertEqual(request.status, ContactRequest.Status.PENDING)
+        self.assertEqual(Notification.objects.get(contact_request=request).recipient,
+                         self.runner)
+
+    def test_similar_contact_refuses_unmarked_sender_and_unrelated_context(self):
+        """The sender must have marked the source event as interesting."""
+        result, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Hi"
+        )
+        self.assertIsNone(result)
+        self.assertFalse(created)
+
+        EventInterest.objects.create(event=self.other_topic, user=self.viewer)
+        result, created = create_contact_request(
+            self.other_topic, self.viewer, self.runner, "Hi"
+        )
+        self.assertIsNone(result)
+        self.assertFalse(created)
+
+    def test_contact_consent_revocation_rechecked_on_post(self):
+        """A previous page view cannot override newly changed privacy."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        self.client.force_login(self.viewer)
+        url = reverse("message_user", args=[self.runner.pk])
+        self.assertContains(self.client.get(url), "Send Contact Request")
+        self.runner.discoverable_for_similar_events = False
+        self.runner.save(update_fields=["discoverable_for_similar_events"])
+        self.client.post(url, {"event": self.event.pk, "message": "Hello"})
+        self.assertFalse(ContactRequest.objects.exists())
+
+    def test_expired_or_cancelled_related_event_cannot_authorize_contact(self):
+        """A stale status cannot bypass the contact-request service."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        self.other_sports.title = "CANCELLED Football"
+        self.other_sports.save(update_fields=["title"])
+        request, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Hello"
+        )
+        self.assertIsNone(request)
+        self.assertFalse(created)
+
+    def test_same_event_contact_works_without_similar_discovery_consent(self):
+        """Existing same-event contacts are unaffected by the new opt-in."""
+        self.runner.discoverable_for_similar_events = False
+        self.runner.save(update_fields=["discoverable_for_similar_events"])
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        EventInterest.objects.create(event=self.event, user=self.runner)
+        request, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Same event"
+        )
+        self.assertTrue(created)
+        self.assertEqual(request.recipient, self.runner)
