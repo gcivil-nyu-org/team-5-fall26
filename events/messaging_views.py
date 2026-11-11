@@ -19,6 +19,7 @@ from accounts.models import User
 from .contact_services import create_contact_request
 from .conversation_services import get_accessible_conversation, has_accepted_contact
 from .forms import ContactStartForm, DirectMessageForm
+from .similar_interests import contactable_source_events
 from .models import (
     ContactRequest,
     Conversation,
@@ -122,7 +123,9 @@ def message_user(request, user_id):
             {"recipient": recipient, "ban_message": BAN_MESSAGE},
         )
 
-    shared_events = _shared_upcoming_events(request.user, recipient)
+    # Include related events only when the recipient opted into discovery.
+    # The server rechecks the same permissions before saving a request.
+    shared_events = contactable_source_events(request.user, recipient)
     pending_request = (
         ContactRequest.objects.filter(status=ContactRequest.Status.PENDING)
         .filter(
@@ -149,7 +152,8 @@ def message_user(request, user_id):
             if contact_request is None:
                 messages.error(
                     request,
-                    "Choose an upcoming event that you both are interested in.",
+                    "Choose an upcoming event that you both are interested in. "
+                    "Related events also count when discovery is enabled.",
                 )
                 return redirect("message_user", user_id=recipient.pk)
             if contact_request.status == ContactRequest.Status.ACCEPTED:
