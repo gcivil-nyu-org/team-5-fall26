@@ -82,6 +82,23 @@ property ID, so feed events without one, such as those at community gardens
 or libraries, don't appear when a borough is selected. Categories are groups
 of the feed's own category names, defined in `events/filters.py`.
 
+## People with similar event interests
+
+When a signed-in member views an upcoming event with categories, the
+**People with Similar Interests** section suggests public profiles of people
+interested in other upcoming events that share an exact category or a category
+group (for example, Basketball and Running are both Sports). The match is
+explained by a public category label, not by exposing private activity or
+contact details. Members already interested in or registered for the current
+event are not repeated.
+
+Discovery is **off by default**. A person must turn on both **Share my profile
+with other event attendees** and **Show my public profile for similar events**
+under Account settings. Turning either off removes them from suggestions.
+Anonymous visitors and banned viewers do not see this section. Suggestions
+link to existing public profiles; contact and messaging permissions remain
+unchanged.
+
 ## Posting events
 
 Signed-in users can post their own events at `/events/new/`, linked as
