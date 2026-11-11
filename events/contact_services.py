@@ -7,6 +7,7 @@ from accounts.models import ContactPermission, User
 
 from .models import ContactRequest, Conversation, Event, EventInterest
 from .notifications import notify_contact_request
+from .similar_interests import available_event, public_match_for_event
 
 
 def create_contact_request(
@@ -21,12 +22,27 @@ def create_contact_request(
         User.objects.select_for_update(no_key=True).get(pk=sender.pk)
         require_unbanned_user(sender)
         if (
-            event.status != Event.Status.UPCOMING
+            not available_event(event)
             or sender.pk == recipient.pk
+            or not recipient.is_active
             or not recipient.share_profile_with_attendees
-            or not EventInterest.objects.filter(event=event, user=sender).exists()
-            or not EventInterest.objects.filter(event=event, user=recipient).exists()
+            or not EventInterest.objects.filter(
+                event=event,
+                user=sender,
+                status=EventInterest.Status.INTERESTED,
+            ).exists()
         ):
+            return None, False
+
+        # Same-event connections remain available as before. Different-event
+        # requests require a verified category match and explicit discovery
+        # consent; the posted event id alone is never authorization.
+        shares_event = EventInterest.objects.filter(
+            event=event,
+            user=recipient,
+            status=EventInterest.Status.INTERESTED,
+        ).exists()
+        if not shares_event and not public_match_for_event(event, recipient):
             return None, False
 
         existing = (
