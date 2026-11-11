@@ -87,7 +87,7 @@ of the feed's own category names, defined in `events/filters.py`.
 When a signed-in member views an upcoming event with categories, the
 **People with Similar Interests** section suggests public profiles of people
 interested in other upcoming events that share an exact category or a category
-group (for example, Basketball and Running are both Sports). The match is
+group (for example, Basketball and Football are both Sports). The match is
 explained by a public category label, not by exposing private activity or
 contact details. Members already interested in or registered for the current
 event are not repeated.
