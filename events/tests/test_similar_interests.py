@@ -51,7 +51,7 @@ class CategoryMatchingTests(SimpleTestCase):
     def test_terms_expand_using_existing_groups(self):
         terms = category_terms(["Basketball/Netball"])
         self.assertIn("Sports", terms)
-        self.assertIn("Running/Jogging", terms)
+        self.assertIn("Football", terms)
         self.assertIn("Basketball/Netball", terms)
         self.assertNotIn("Gardening", terms)
 
@@ -61,7 +61,7 @@ class CategoryMatchingTests(SimpleTestCase):
             shared_interest_label(source, "Basketball/Netball"),
             "Basketball/Netball",
         )
-        self.assertEqual(shared_interest_label(source, "Running/Jogging"), "Sports")
+        self.assertEqual(shared_interest_label(source, "Football"), "Sports")
         self.assertIsNone(shared_interest_label(source, "Gardening"))
 
     def test_unlisted_categories_can_still_match_exactly(self):
@@ -80,7 +80,7 @@ class SimilarInterestDiscoveryTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.event = make_event("basketball", "Sports | Basketball/Netball")
-        cls.other_sports = make_event("running", "Running/Jogging")
+        cls.other_sports = make_event("running", "Football")
         cls.same_sport = make_event("basketball-other", "Basketball/Netball")
         cls.other_topic = make_event("gardening", "Gardening")
         cls.viewer = make_user("viewer")
