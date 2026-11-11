@@ -12,6 +12,11 @@ from .models import Event, EventInterest, Registration
 DEFAULT_SUGGESTION_LIMIT = 6
 
 
+def available_event(event):
+    """Accept only live, non-cancelled events, even before the hourly sync."""
+    return event.is_open and not event.is_cancelled
+
+
 def category_tags(categories):
     """Split the NYC Parks category string into nonempty public labels."""
     return [tag.strip() for tag in (categories or "").split("|") if tag.strip()]
@@ -59,6 +64,106 @@ def shared_interest_label(source_tags, other_categories):
     return None
 
 
+def public_match_for_event(event, recipient):
+    """Return a related public interest for an opted-in member, if any.
+
+    Never reveal the name or details of an event the recipient follows.
+    The shared category is the only relationship disclosed.
+    """
+    if (
+        not available_event(event)
+        or not category_tags(event.categories)
+        or not recipient.share_profile_with_attendees
+        or not recipient.discoverable_for_similar_events
+        or not recipient.is_active
+    ):
+        return None
+
+    interests = (
+        EventInterest.objects.filter(
+            user=recipient,
+            status=EventInterest.Status.INTERESTED,
+            event__status=Event.Status.UPCOMING,
+        )
+        .exclude(event=event)
+        .select_related("event")
+        .order_by("event__start_time", "pk")
+    )
+    source_tags = category_tags(event.categories)
+    for interest in interests:
+        related_event = interest.event
+        if not available_event(related_event):
+            continue
+        label = shared_interest_label(source_tags, related_event.categories)
+        if label:
+            return label
+    return None
+
+
+def contactable_event_reasons(sender, recipient):
+    """Map events the sender follows to an allowed connection reason.
+
+    Same-event contacts preserve their existing permissions. Cross-event
+    contacts additionally require the recipient's separate discovery opt-in.
+    A None reason represents an event that both members follow.
+    """
+    if (
+        not sender.is_authenticated
+        or sender.pk == recipient.pk
+        or not recipient.is_active
+        or not recipient.share_profile_with_attendees
+    ):
+        return {}
+
+    source_events = Event.objects.filter(
+        interests__user=sender,
+        interests__status=EventInterest.Status.INTERESTED,
+        status=Event.Status.UPCOMING,
+    ).distinct()
+    recipient_events = [
+        event
+        for event in Event.objects.filter(
+            interests__user=recipient,
+            interests__status=EventInterest.Status.INTERESTED,
+            status=Event.Status.UPCOMING,
+        ).distinct()
+        if available_event(event)
+    ]
+    followed_ids = {event.pk for event in recipient_events}
+    reasons = {}
+    for source in source_events:
+        if not available_event(source):
+            continue
+        if source.pk in followed_ids:
+            reasons[source.pk] = None
+            continue
+        if not recipient.discoverable_for_similar_events:
+            continue
+        source_tags = category_tags(source.categories)
+        for other in recipient_events:
+            label = shared_interest_label(source_tags, other.categories)
+            if label:
+                reasons[source.pk] = label
+                break
+    return reasons
+
+
+def contactable_source_events(sender, recipient):
+    """Return the sender's events eligible for a new contact request."""
+    reasons = contactable_event_reasons(sender, recipient)
+    return Event.objects.filter(pk__in=reasons).order_by(
+        "start_time", "title", "pk"
+    )
+
+
+def related_interest_between_users(sender, recipient):
+    """Show a meaningful related category only when the recipient opts in."""
+    for label in contactable_event_reasons(sender, recipient).values():
+        if label:
+            return label
+    return None
+
+
 def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIMIT):
     """Return unique opted-in users interested in other upcoming related events.
 
@@ -67,7 +172,7 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
     similar-event discovery consent must be enabled.
     """
     tags = category_tags(event.categories)
-    if event.status != Event.Status.UPCOMING or not tags or limit < 1:
+    if not available_event(event) or not tags or limit < 1:
         return []
 
     matching_categories = Q()
@@ -99,7 +204,7 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
     suggestions = []
     seen_users = set()
     for interest in candidates.iterator(chunk_size=200):
-        if interest.user_id in seen_users:
+        if interest.user_id in seen_users or not available_event(interest.event):
             continue
         label = shared_interest_label(tags, interest.event.categories)
         if label is None:
