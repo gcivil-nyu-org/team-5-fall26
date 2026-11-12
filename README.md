@@ -69,12 +69,43 @@ automatically maintains the index when events are imported or edited; no
 separate indexing command is needed. Result cards link to `/events/{id}`;
 event detail pages are a future feature and currently return 404.
 
+### Plain-language search
+
+The search box on the home and search pages also understands plain language,
+such as *kids events in the Bronx this weekend* or *fitness in Brooklyn on
+Saturday morning*. What it recognizes becomes filters:
+
+- **Dates:** today, tonight, tomorrow, this or next weekend, week, or month,
+  weekdays, *in March*, and dates such as *Nov 20* or *11/20*.
+- **Times of day:** morning, afternoon, evening, night, or clock times.
+- **Boroughs.**
+- **Audiences and broad kinds of event:** kids and families, seniors, fitness,
+  sports, arts, music, nature, history, and education.
+
+Filler such as *show me*, *things to do*, or *free*, and generic words such as
+*classes*, are dropped, and the remaining words are the search terms. The page
+then redirects to that filtered search, so the filter bar shows the filters
+and they can be changed. A summary above the results shows how the search was
+read, with a link to search for the exact words instead. When no event matches
+every remaining word, events matching any of them are shown. Quoted phrases,
+`OR`, and exclusions are kept as typed.
+
+When `GEMINI_API_KEY` is set, searches of three or more words are read by
+Gemini instead, so other phrasings and languages work too (*actividades de
+naturaleza en Staten Island este fin de semana*). If Gemini is unavailable, the
+built-in rules in `events/natural_search.py` are used. Only words newly typed
+into the search box are read this way: plain `/search?q=...` links, pagination,
+and changing only the filters stay exact keyword searches. The archive search
+is always a keyword search.
+
 ## Event filters
 
-A filter bar under the search box narrows results by date, borough, and
-category, with or without a search term. Different filters must all match;
-choosing several boroughs or categories matches any of them. Dates use New
-York time, and an event matches a date range when it overlaps it. The
+A filter bar under the search box narrows results by date, time of day,
+borough, and category, with or without a search term. Different filters must
+all match; choosing several boroughs or categories matches any of them. Dates
+and times use New York time, and an event matches a date range when it
+overlaps it. **Time of day** keeps events that start in the morning (before
+noon), afternoon (noon to 5 PM), or evening (5 PM or later). The
 **Today**, **This weekend**, and **This month** buttons fill in the dates.
 
 For feed events, boroughs come from the first letter of the NYC Parks
@@ -440,6 +471,37 @@ and its database. If instances report degraded health because there is no
 default VPC, create one in the AWS VPC console (Actions → Create default VPC).
 Uploaded profile photos are stored on the instance and are lost when it is
 replaced.
+
+### HTTPS
+
+Browsers only allow the microphone, and so voice chat, on HTTPS pages. The
+single instance serves HTTPS itself, with a free Let's Encrypt certificate for
+the environment's own address, so no load balancer or domain is needed.
+
+- **Configuration:** `.ebextensions/https.config` opens port 443 and sets
+  `HTTPS_DOMAIN`, the address the certificate is for. Change it for another
+  environment, or set it to an empty value to serve plain HTTP only.
+- **After each deployment:** the postdeploy hooks run
+  `.platform/https/enable_https.sh`. It installs certbot, gets or renews the
+  certificate, serves the site on port 443, and redirects HTTP to HTTPS.
+- **Logs and health:** HTTPS requests go to the same nginx access log and
+  enhanced health log as HTTP ones, so health metrics keep working after the
+  redirect.
+- **Certificate checks:** Let's Encrypt fetches files from
+  `/.well-known/acme-challenge/` over plain HTTP, set up in
+  `.platform/nginx/conf.d/elasticbeanstalk/acme_challenge.conf`.
+- **Renewal:** a systemd timer runs certbot twice a day, and certbot only
+  renews when the certificate is close to expiring.
+- **Failures:** if a step fails, the script logs why in
+  `/var/log/eb-hooks.log` and the site stays on plain HTTP; deployments never
+  fail because of HTTPS. If renewing fails while the current certificate is
+  still valid, HTTPS keeps using it. A replaced instance gets a new
+  certificate on its first deployment.
+- **Django:** nginx tells Django that requests arrived over HTTPS, which
+  `SECURE_PROXY_SSL_HEADER` already trusts in production.
+- **Google sign-in:** add
+  `https://<HTTPS_DOMAIN>/accounts/google/login/callback/` to the Google OAuth
+  client's authorized redirect URIs, since sign-in now returns over HTTPS.
 
 ## Google sign-in (issue #29)
 

@@ -7,12 +7,16 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Case, Exists, F, OuterRef, Q, Value, When
-from django.http import Http404, QueryDict
+from django.db.models import Case, Exists, F, OuterRef, Q, Sum, Value, When
+from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import (
+    require_http_methods,
+    require_POST,
+    require_safe,
+)
 from django.views.generic import (
     CreateView,
     DetailView,
@@ -20,12 +24,28 @@ from django.views.generic import (
     TemplateView,
     UpdateView,
 )
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import (
+    content_disposition_header,
+    url_has_allowed_host_and_scheme,
+)
 
 from accounts.ban_services import get_active_ban
 
+from .calendar_export import (
+    can_add_to_calendar,
+    google_calendar_url,
+    has_calendar_file,
+    icalendar_text,
+    ics_filename,
+    webcal_url,
+)
 from .filters import EventFilterForm, filter_events, filter_params
-from .forms import CancelEventForm, EventListingForm, NotifyAttendeesForm
+from .forms import (
+    CancelEventForm,
+    EventListingForm,
+    NotifyAttendeesForm,
+    PartySizeForm,
+)
 from .models import (
     ContactRequest,
     Event,
@@ -40,7 +60,9 @@ from .notifications import (
     interested_recipients,
     notify_interested,
     notify_registration_change,
+    party,
 )
+from .natural_search import MAX_PROMPT_LENGTH, describe_search, natural_search_url
 from .search import search_events
 from .similar_interests import (
     contactable_source_events,
@@ -234,9 +256,13 @@ class EventManageView(LoginRequiredMixin, DetailView):
         if tab not in {"attendees", "notifications"}:
             tab = "attendees"
         context["active_tab"] = tab
-        context["attendees"] = Registration.objects.filter(
-            event=self.object
-        ).select_related("user")
+        attendees = Registration.objects.filter(event=self.object).select_related(
+            "user"
+        )
+        context["attendees"] = attendees
+        context["headcount"] = (
+            attendees.aggregate(total=Sum("party_size"))["total"] or 0
+        )
         notifications = list(
             self.object.notifications.filter(
                 recipient=self.request.user,
@@ -326,24 +352,46 @@ def register_event(request, pk):
         )
         return redirect(next_url)
 
+    form = PartySizeForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, form.errors["party_size"][0])
+        return redirect(next_url)
+    party_size = form.cleaned_data["party_size"]
+    # One-click Register buttons send no party size; only the party size
+    # form can change an existing registration.
+    changing_size = "party_size" in request.POST
+
     with transaction.atomic():
-        registration, created = Registration.objects.get_or_create(
+        registration, created = Registration.objects.select_for_update().get_or_create(
             event=event,
             user=request.user,
+            defaults={"party_size": party_size},
         )
-        if created:
-            notify_registration_change(event, request.user, registered=True)
+        previous_size = registration.party_size
 
-    if created:
-        messages.success(
-            request,
-            "You have successfully registered for this event!",
-        )
-    else:
-        messages.info(
-            request,
-            "You are already registered for this event.",
-        )
+        if created:
+            notify_registration_change(
+                event, request.user, registered=True, party_size=party_size
+            )
+            if party_size == 1:
+                messages.success(request, "You're registered for this event.")
+            else:
+                messages.success(request, f"You're registered for {party(party_size)}.")
+        elif changing_size and party_size != previous_size:
+            registration.party_size = party_size
+            registration.save(update_fields=["party_size"])
+            notify_registration_change(
+                event,
+                request.user,
+                registered=True,
+                party_size=party_size,
+                previous_size=previous_size,
+            )
+            messages.success(request, f"Party size updated to {party_size}.")
+        elif changing_size:
+            messages.info(request, f"Your party size is already {party_size}.")
+        else:
+            messages.info(request, "You are already registered for this event.")
 
     return redirect(next_url)
 
@@ -363,14 +411,22 @@ def cancel_registration(request, pk):
         next_url = reverse("event_detail", args=[event.pk])
 
     with transaction.atomic():
-        deleted, _ = Registration.objects.filter(
-            event=event,
-            user=request.user,
-        ).delete()
-        if deleted:
-            notify_registration_change(event, request.user, registered=False)
+        registration = (
+            Registration.objects.select_for_update()
+            .filter(event=event, user=request.user)
+            .first()
+        )
+        if registration:
+            registration.delete()
+            if event.is_open:
+                notify_registration_change(
+                    event,
+                    request.user,
+                    registered=False,
+                    party_size=registration.party_size,
+                )
 
-    if deleted:
+    if registration:
         messages.success(
             request,
             "Your registration has been cancelled.",
@@ -382,6 +438,29 @@ def cancel_registration(request, pk):
         )
 
     return redirect(next_url)
+
+
+@require_safe
+def event_calendar_file(request, pk):
+    """Serve an event as an .ics file for Apple Calendar, Outlook, and others.
+
+    The event page links here with ``webcal://``, so calendar apps subscribe
+    and keep refreshing this URL. The file therefore stays available after
+    the event ends, and cancelled events are marked cancelled. Only events
+    without a start time are not found.
+    """
+    event = get_object_or_404(Event, pk=pk)
+    if not has_calendar_file(event):
+        raise Http404("This event has no date to add to a calendar.")
+    event_url = request.build_absolute_uri(reverse("event_detail", args=[event.pk]))
+    response = HttpResponse(
+        icalendar_text(event, event_url),
+        content_type="text/calendar; charset=utf-8",
+    )
+    response["Content-Disposition"] = content_disposition_header(
+        False, ics_filename(event)
+    )
+    return response
 
 
 class EventDetailView(DetailView):
@@ -432,6 +511,17 @@ class EventDetailView(DetailView):
         # Check whether this event accepts registrations on our platform.
         context["event_accepts_registration"] = event.is_open and not event.is_cancelled
 
+        # Offer "Add to calendar" for open events that have a start time.
+        context["calendar_available"] = can_add_to_calendar(event)
+        if context["calendar_available"]:
+            build_url = self.request.build_absolute_uri
+            context["google_calendar_url"] = google_calendar_url(
+                event, build_url(reverse("event_detail", args=[event.pk]))
+            )
+            context["webcal_url"] = webcal_url(
+                build_url(reverse("event_calendar", args=[event.pk]))
+            )
+
         # Get registrations for this event.
         registrations = Registration.objects.filter(event=event).select_related("user")
 
@@ -453,6 +543,15 @@ class EventDetailView(DetailView):
         )
 
         context["user_is_registered"] = current_registration is not None
+        context["current_registration"] = current_registration
+        context["party_size_choices"] = range(1, Registration.MAX_PARTY_SIZE + 1)
+
+        # Only the host sees the headcount; party sizes are on the manage page.
+        context["is_host"] = is_authenticated and event.host_id == user.pk
+        if context["is_host"]:
+            context["headcount"] = (
+                registrations.aggregate(total=Sum("party_size"))["total"] or 0
+            )
 
         # Only logged-in users who are not the host can register.
         context["can_register"] = (
@@ -640,6 +739,7 @@ class EventSearchMixin:
         form = EventFilterForm(self.request.GET)
         is_valid = form.is_valid()
         filters = form.cleaned_data
+        self.filters = filters
 
         self.filter_params = filter_params(filters)
 
@@ -725,7 +825,12 @@ class ArchivedEventsView(
 
 
 class SearchView(EventSearchMixin, ListView):
-    """Let any visitor search and filter upcoming events."""
+    """Let any visitor search and filter upcoming events.
+
+    Searches typed in plain language, such as "kids events in Brooklyn this
+    weekend", are redirected to the keywords and filters they describe, and
+    the results page shows how the search was read.
+    """
 
     template_name = "events/search.html"
     context_object_name = "events"
@@ -741,3 +846,19 @@ class SearchView(EventSearchMixin, ListView):
     )
     empty_without_filters = True
     clear_filters_url_name = "landing"
+
+    def get(self, request, *args, **kwargs):
+        """Send a plain-language search to the filters it describes."""
+        target = natural_search_url(request)
+        if target:
+            return redirect(target)
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        """Explain how a plain-language search was read."""
+        context = super().get_context_data(**kwargs)
+        asked = " ".join(self.request.GET.get("asked", "").split())
+        if asked:
+            context["asked"] = asked[:MAX_PROMPT_LENGTH]
+            context["understood"] = describe_search(self.query, self.filters)
+        return context
