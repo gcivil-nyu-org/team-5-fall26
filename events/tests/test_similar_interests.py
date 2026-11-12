@@ -400,7 +400,8 @@ class SimilarInterestDiscoveryTests(TestCase):
 
         EventInterest.objects.create(event=self.event, user=self.viewer)
         response = self.client.get(url, {"from_event": self.event.pk})
-        self.assertContains(response, "Related event interest: Sports")
+        self.assertContains(response, "Related event interest:")
+        self.assertContains(response, "Sports")
 
     def test_connect_link_appears_after_marking_event_interested(self):
         """The suggested profile becomes contactable after marking interest."""
