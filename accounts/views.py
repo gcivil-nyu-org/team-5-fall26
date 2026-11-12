@@ -132,7 +132,12 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             from_event = self.request.GET.get("from_event", "")
             if from_event.isascii() and from_event.isdecimal() and len(from_event) < 18:
                 event = Event.objects.filter(pk=int(from_event)).first()
-                if event is not None:
+                # A public event ID alone does not prove that the visitor
+                # actually shares this interest.
+                if event is not None and event.interests.filter(
+                    user=self.request.user,
+                    status="interested",
+                ).exists():
                     related_label = public_match_for_event(event, profile_user)
             if not related_label:
                 related_label = related_interest_between_users(
