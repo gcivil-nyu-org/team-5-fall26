@@ -4,7 +4,11 @@ Only public event-category labels are used as explanations. User email,
 private messages, and attendance details are never included in suggestions.
 """
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
+from django.utils import timezone
+
+from accounts.ban_services import get_active_ban
+from accounts.models import UserBan
 
 from .filters import CATEGORY_GROUPS, CATEGORY_NAMES, CATEGORY_SEPARATOR
 from .models import Event, EventInterest, Registration
@@ -76,6 +80,7 @@ def public_match_for_event(event, recipient):
         or not recipient.share_profile_with_attendees
         or not recipient.discoverable_for_similar_events
         or not recipient.is_active
+        or get_active_ban(recipient) is not None
     ):
         return None
 
@@ -112,6 +117,7 @@ def contactable_event_reasons(sender, recipient):
         or sender.pk == recipient.pk
         or not recipient.is_active
         or not recipient.share_profile_with_attendees
+        or get_active_ban(recipient) is not None
     ):
         return {}
 
@@ -181,8 +187,15 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
     same_event_registrations = Registration.objects.filter(event=event).values(
         "user_id"
     )
+    # A ban does not set is_active=False, so check active bans separately.
+    active_bans = UserBan.objects.filter(
+        user_id=OuterRef("user_id"),
+        lifted_at__isnull=True,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     candidates = (
-        EventInterest.objects.filter(
+        EventInterest.objects.alias(has_active_ban=Exists(active_bans)).filter(
+            has_active_ban=False,
+
             matching_categories,
             status=EventInterest.Status.INTERESTED,
             event__status=Event.Status.UPCOMING,
