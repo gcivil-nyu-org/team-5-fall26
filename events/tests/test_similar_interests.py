@@ -223,7 +223,7 @@ class SimilarInterestDiscoveryTests(TestCase):
         response = self.client.get(reverse("event_detail", args=[self.event.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "People with Similar Interests")
-        self.assertContains(response, "Shared interest: Sports")
+        self.assertContains(response, "Related event category: Sports")
         self.assertContains(response, "Mark Interested to connect")
         self.assertNotContains(
             response,
