@@ -312,6 +312,10 @@ class SimilarInterestDiscoveryTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertNotContains(response, "Related event interest:")
 
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        visible = self.client.get(url, {"from_event": self.event.pk})
+        self.assertContains(visible, "Related event interest:")
+
         self.runner.discoverable_for_similar_events = False
         self.runner.save(update_fields=["discoverable_for_similar_events"])
         response = self.client.get(url, {"from_event": self.event.pk})
