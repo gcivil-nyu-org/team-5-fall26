@@ -162,10 +162,17 @@ def message_user(request, user_id):
                 )
                 return redirect("conversation", conversation_id=conversation.pk)
             if not created:
-                messages.info(
-                    request,
-                    "Your contact request is already awaiting a response.",
-                )
+                if contact_request.sender_id != request.user.pk:
+                    messages.info(
+                        request,
+                        "This person has already sent you a contact request. "
+                        "You can respond from your notifications.",
+                    )
+                else:
+                    messages.info(
+                        request,
+                        "Your contact request is already awaiting a response.",
+                    )
                 return redirect("message_user", user_id=recipient.pk)
 
             messages.success(
