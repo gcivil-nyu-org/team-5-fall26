@@ -348,13 +348,15 @@ class BanInteractionTests(TestCase):
                 )
                 self.assertTrue(answer_inquiry(inquiry, "At the gate", self.user))
 
-    def test_banned_recipient_can_still_receive_contact_requests(self):
+    def test_banned_recipient_cannot_receive_new_contact_requests(self):
+        """New contact requests are blocked while the recipient is banned."""
         self.set_interest(EventInterest.Status.INTERESTED)
         contact, created = create_contact_request(
             self.event, self.peer, self.user, "Hello"
         )
-        self.assertTrue(created)
-        self.assertEqual(contact.recipient, self.user)
+        self.assertFalse(created)
+        self.assertIsNone(contact)
+        self.assertFalse(Notification.objects.filter(contact_request__isnull=False).exists())
 
     def test_browsing_and_polling_keep_automatic_read_tracking(self):
         self.accept_contact()
