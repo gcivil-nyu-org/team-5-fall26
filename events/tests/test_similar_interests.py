@@ -413,9 +413,7 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.client.force_login(self.viewer)
         response = self.client.get(reverse("event_detail", args=[self.event.pk]))
         self.assertContains(response, "Connect")
-        self.assertContains(
-            response, reverse("message_user", args=[self.runner.pk])
-        )
+        self.assertContains(response, reverse("message_user", args=[self.runner.pk]))
         self.assertNotContains(response, "Mark Interested to connect")
 
     def test_connect_link_works_with_a_different_eligible_event(self):
@@ -424,9 +422,7 @@ class SimilarInterestDiscoveryTests(TestCase):
         EventInterest.objects.create(event=additional, user=self.viewer)
         self.client.force_login(self.viewer)
         response = self.client.get(reverse("event_detail", args=[self.event.pk]))
-        self.assertContains(
-            response, reverse("message_user", args=[self.runner.pk])
-        )
+        self.assertContains(response, reverse("message_user", args=[self.runner.pk]))
         self.assertNotContains(response, "Mark Interested to connect")
 
     def test_multiple_pending_requests_across_events_reuse_first(self):
