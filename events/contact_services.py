@@ -1,8 +1,9 @@
 """Shared contact-request workflows."""
 
 from django.db import transaction
+from django.db.models import Q
 
-from accounts.ban_services import require_unbanned_user
+from accounts.ban_services import get_active_ban, require_unbanned_user
 from accounts.models import ContactPermission, User
 
 from .models import ContactRequest, Conversation, EventInterest
@@ -19,12 +20,22 @@ def create_contact_request(
 ):
     """Create one eligible event contact request, or return an existing one."""
     with transaction.atomic():
-        User.objects.select_for_update(no_key=True).get(pk=sender.pk)
+        # Lock both accounts in a stable order so concurrent requests cannot
+        # bypass the one-pending-request-per-pair rule.
+        locked_users = {
+            user.pk: user
+            for user in User.objects.select_for_update(no_key=True)
+            .filter(pk__in=(sender.pk, recipient.pk))
+            .order_by("pk")
+        }
+        sender = locked_users[sender.pk]
+        recipient = locked_users[recipient.pk]
         require_unbanned_user(sender)
         if (
             not available_event(event)
             or sender.pk == recipient.pk
             or not recipient.is_active
+            or get_active_ban(recipient) is not None
             or not recipient.share_profile_with_attendees
             or not EventInterest.objects.filter(
                 event=event,
@@ -45,13 +56,18 @@ def create_contact_request(
         if not shares_event and not public_match_for_event(event, recipient):
             return None, False
 
+        # A pending or accepted request belongs to the pair, not to a
+        # particular event. Checking both directions also prevents spam.
         existing = (
             ContactRequest.objects.filter(
-                event=event,
-                sender=sender,
-                recipient=recipient,
+                Q(sender=sender, recipient=recipient)
+                | Q(sender=recipient, recipient=sender),
+                status__in=(
+                    ContactRequest.Status.PENDING,
+                    ContactRequest.Status.ACCEPTED,
+                ),
             )
-            .exclude(status=ContactRequest.Status.DECLINED)
+            .order_by("-created_at", "-pk")
             .first()
         )
         if existing:
