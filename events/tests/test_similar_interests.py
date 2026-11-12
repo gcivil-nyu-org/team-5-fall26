@@ -519,6 +519,19 @@ class SimilarInterestDiscoveryTests(TestCase):
         )
         self.assertEqual([i["user"] for i in self.suggestions()], [self.runner])
 
+    def test_lifted_ban_restores_public_discovery(self):
+        """A lifted ban should not permanently hide an opted-in member."""
+        ban = UserBan.objects.create(
+            user=self.runner,
+            issued_by=self.viewer,
+            offense_number=1,
+            expires_at=None,
+        )
+        self.assertEqual(self.suggestions(), [])
+        ban.lifted_at = timezone.now()
+        ban.save(update_fields=["lifted_at"])
+        self.assertEqual([i["user"] for i in self.suggestions()], [self.runner])
+
     def test_profile_interest_label_hides_when_recipient_is_banned(self):
         """Banned profiles should not reveal event-match context."""
         EventInterest.objects.create(event=self.event, user=self.viewer)
