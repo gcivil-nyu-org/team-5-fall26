@@ -95,16 +95,26 @@ event are not repeated.
 Discovery is **off by default**. A person must turn on both **Share my profile
 with other event attendees** and **Show my public profile for similar events**
 under Account settings. Turning either off removes them from suggestions.
-Anonymous visitors and banned viewers do not see this section. Suggestions
-exclude ended or cancelled events even before the hourly event sync finishes.
+Anonymous visitors and banned viewers do not see this section. Users
+with an active ban are not suggested, even if their account is still active.
+Suggestions exclude ended or cancelled events even before the hourly sync.
 
-Suggested profiles show the verified matching category when reached from the
-event page. Members can also request contact across related events if the
-sender marked an upcoming event as Interested and the recipient explicitly
-opted into similar-event discovery. The server rechecks both event interest
-and the recipient's current permissions when saving a contact request.
-Existing same-event contact rules continue to work without the new opt-in.
-Acceptance, direct messaging, and recipient approval preferences work as before.
+The event page shows a public **related event category**, not a claim that a
+visitor already likes that category. The visitor can follow an event using the
+existing Interested button; once the person is eligible, the **Connect** link
+becomes available. A public profile only describes a shared interest when
+the visitor has actually marked the referenced event as Interested and the
+suggested member has consented to related-event discovery.
+
+Members can request contact across related events if the sender marked an
+upcoming event as Interested and the recipient opted into discovery. The
+server checks these permissions again when saving a contact request. No new
+requests may be sent to currently banned recipients. To prevent repeated
+invitations, only one pending or accepted contact request per pair of users
+is allowed across all events, in either direction. Existing same-event
+contacts still work without the extra similar-event consent, subject to
+the same ban and duplicate-request checks. Conversation approval settings
+and previously approved conversations remain unchanged.
 
 ## Posting events
 
