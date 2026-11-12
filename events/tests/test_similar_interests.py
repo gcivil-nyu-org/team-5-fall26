@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.urls import reverse
 
 from accounts.forms import AccountSettingsForm
-from accounts.models import User
+from accounts.models import User, UserBan
 from events.contact_services import create_contact_request
 from events.models import (
     ContactRequest,
@@ -224,6 +224,11 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "People with Similar Interests")
         self.assertContains(response, "Shared interest: Sports")
+        self.assertContains(response, "Mark Interested to connect")
+        self.assertNotContains(
+            response,
+            reverse("message_user", args=[self.runner.pk]),
+        )
         self.assertContains(
             response,
             reverse("public_profile", args=[self.runner.username]),
@@ -287,7 +292,8 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.assertNotContains(response, "People with Similar Interests")
 
     def test_profile_link_shows_related_interest_without_exposing_event(self):
-        """A recommended profile explains the verified public category."""
+        """A recommended profile explains an interest the viewer really follows."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
         self.client.force_login(self.viewer)
         url = reverse("public_profile", args=[self.runner.username])
         response = self.client.get(url, {"from_event": self.event.pk})
@@ -384,3 +390,133 @@ class SimilarInterestDiscoveryTests(TestCase):
         )
         self.assertTrue(created)
         self.assertEqual(request.recipient, self.runner)
+
+    def test_viewer_must_follow_source_event_to_claim_shared_interest(self):
+        """A guessed public event ID is not proof of a shared interest."""
+        self.client.force_login(self.viewer)
+        url = reverse("public_profile", args=[self.runner.username])
+        response = self.client.get(url, {"from_event": self.event.pk})
+        self.assertNotContains(response, "Related event interest:")
+
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        response = self.client.get(url, {"from_event": self.event.pk})
+        self.assertContains(response, "Related event interest: Sports")
+
+    def test_connect_link_appears_after_marking_event_interested(self):
+        """The suggested profile becomes contactable after marking interest."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("event_detail", args=[self.event.pk]))
+        self.assertContains(response, "Connect")
+        self.assertContains(
+            response, reverse("message_user", args=[self.runner.pk])
+        )
+        self.assertNotContains(response, "Mark Interested to connect")
+
+    def test_connect_link_works_with_a_different_eligible_event(self):
+        """People already interested in another related event can connect."""
+        additional = make_event("another-football", "Football")
+        EventInterest.objects.create(event=additional, user=self.viewer)
+        self.client.force_login(self.viewer)
+        response = self.client.get(reverse("event_detail", args=[self.event.pk]))
+        self.assertContains(
+            response, reverse("message_user", args=[self.runner.pk])
+        )
+        self.assertNotContains(response, "Mark Interested to connect")
+
+    def test_multiple_pending_requests_across_events_reuse_first(self):
+        """Different events cannot be used to spam the same recipient."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        EventInterest.objects.create(event=self.same_sport, user=self.viewer)
+        first, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Hi"
+        )
+        self.assertTrue(created)
+        self.assertEqual(first.status, ContactRequest.Status.PENDING)
+
+        again, created = create_contact_request(
+            self.same_sport, self.viewer, self.runner, "Another invitation"
+        )
+        self.assertFalse(created)
+        self.assertEqual(again.pk, first.pk)
+        self.assertEqual(ContactRequest.objects.count(), 1)
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_reverse_direction_cannot_create_second_pending_request(self):
+        """A recipient cannot send a second request back through an event."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        first, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Let's meet"
+        )
+        self.assertTrue(created)
+
+        reverse_request, created = create_contact_request(
+            self.other_sports, self.runner, self.viewer, "Reply"
+        )
+        self.assertFalse(created)
+        self.assertEqual(reverse_request.pk, first.pk)
+        self.assertEqual(ContactRequest.objects.count(), 1)
+
+    def test_banned_user_is_not_suggested_or_contactable(self):
+        """Bans must block discovery and requests even if is_active is True."""
+        UserBan.objects.create(
+            user=self.runner,
+            issued_by=self.viewer,
+            offense_number=1,
+            expires_at=timezone.now() + timedelta(days=5),
+        )
+        self.assertTrue(self.runner.is_active)
+        self.assertEqual(self.suggestions(), [])
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        request, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Hi"
+        )
+        self.assertIsNone(request)
+        self.assertFalse(created)
+        self.client.force_login(self.viewer)
+        page = self.client.get(reverse("event_detail", args=[self.event.pk]))
+        self.assertNotContains(page, self.runner.username)
+        contact_page = self.client.get(reverse("message_user", args=[self.runner.pk]))
+        self.assertNotContains(contact_page, "Send Contact Request")
+
+    def test_banned_recipient_is_blocked_for_same_event_requests(self):
+        """The ban rule also applies to the older same-event contact flow."""
+        EventInterest.objects.create(event=self.event, user=self.runner)
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        UserBan.objects.create(
+            user=self.runner,
+            issued_by=self.viewer,
+            offense_number=1,
+            expires_at=timezone.now() + timedelta(days=5),
+        )
+        result, created = create_contact_request(
+            self.event, self.viewer, self.runner, "Hi"
+        )
+        self.assertIsNone(result)
+        self.assertFalse(created)
+
+    def test_expired_ban_no_longer_hides_public_profile(self):
+        """Once a ban expires, opted-in people can be suggested again."""
+        UserBan.objects.create(
+            user=self.runner,
+            issued_by=self.viewer,
+            offense_number=1,
+            expires_at=timezone.now() - timedelta(hours=1),
+        )
+        self.assertEqual([i["user"] for i in self.suggestions()], [self.runner])
+
+    def test_profile_interest_label_hides_when_recipient_is_banned(self):
+        """Banned profiles should not reveal event-match context."""
+        EventInterest.objects.create(event=self.event, user=self.viewer)
+        UserBan.objects.create(
+            user=self.runner,
+            issued_by=self.viewer,
+            offense_number=1,
+            expires_at=timezone.now() + timedelta(days=5),
+        )
+        self.client.force_login(self.viewer)
+        response = self.client.get(
+            reverse("public_profile", args=[self.runner.username]),
+            {"from_event": self.event.pk},
+        )
+        self.assertNotContains(response, "Related event interest:")
