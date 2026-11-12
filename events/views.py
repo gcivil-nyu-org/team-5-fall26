@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Case, Exists, F, OuterRef, Value, When
+from django.db.models import Case, Exists, F, OuterRef, Q, Value, When
 from django.http import Http404, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -42,7 +42,10 @@ from .notifications import (
     notify_registration_change,
 )
 from .search import search_events
-from .similar_interests import find_similar_interest_users
+from .similar_interests import (
+    contactable_source_events,
+    find_similar_interest_users,
+)
 
 UPCOMING_EVENT_LIMIT = 20
 SEARCH_PAGE_SIZE = 20
@@ -518,11 +521,30 @@ class EventDetailView(DetailView):
             and not event.is_cancelled
             and bool(event.categories)
         )
-        context["similar_interest_users"] = (
+        suggestions = (
             find_similar_interest_users(event, viewer=user)
             if context["can_explore_similar_interests"]
             else []
         )
+        for suggestion in suggestions:
+            suggested_user = suggestion["user"]
+            # A person who marked this event Interested can connect directly.
+            # Others may qualify through a different related event or an
+            # existing request; otherwise point them to the interest button.
+            can_contact = current_interest is not None
+            if not can_contact:
+                can_contact = contactable_source_events(user, suggested_user).exists()
+            if not can_contact:
+                can_contact = ContactRequest.objects.filter(
+                    Q(sender=user, recipient=suggested_user)
+                    | Q(sender=suggested_user, recipient=user),
+                    status__in=(
+                        ContactRequest.Status.PENDING,
+                        ContactRequest.Status.ACCEPTED,
+                    ),
+                ).exists()
+            suggestion["can_connect"] = can_contact
+        context["similar_interest_users"] = suggestions
 
         # Event discussion posts and replies.
         context["posts"] = (
