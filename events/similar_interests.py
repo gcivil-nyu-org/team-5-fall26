@@ -188,12 +188,16 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
         "user_id"
     )
     # A ban does not set is_active=False, so check active bans separately.
-    active_bans = UserBan.objects.filter(
-        user_id=OuterRef("user_id"),
-        lifted_at__isnull=True,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    active_bans = (
+        UserBan.objects.filter(
+            user_id=OuterRef("user_id"),
+            lifted_at__isnull=True,
+        )
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    )
     candidates = (
-        EventInterest.objects.alias(has_active_ban=Exists(active_bans)).filter(
+        EventInterest.objects.alias(has_active_ban=Exists(active_bans))
+        .filter(
             matching_categories,
             has_active_ban=False,
             status=EventInterest.Status.INTERESTED,
