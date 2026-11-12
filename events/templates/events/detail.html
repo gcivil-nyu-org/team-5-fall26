@@ -730,7 +730,7 @@
             Attendees who share their profiles can be explored below.
         </p>
         {% if can_mark_interest %}
-            <div class="community-actions">
+            <div class="community-actions" id="mark-event-interest">
                 <form
                     method="post"
                     action="{% url 'toggle_event_interest' event.pk %}"
@@ -916,7 +916,11 @@
                             </h4>
                             <p>Shared interest: {{ suggestion.shared_interest }}</p>
                             <p>
-                                <a href="{% url 'message_user' suggestion.user.pk %}">Connect</a>
+                                {% if suggestion.can_connect %}
+                                    <a href="{% url 'message_user' suggestion.user.pk %}">Connect</a>
+                                {% else %}
+                                    <a href="#mark-event-interest">Mark Interested to connect</a>
+                                {% endif %}
                             </p>
                         </article>
                     {% endfor %}
