@@ -15,7 +15,7 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, UpdateView
 
-from events.models import ContactRequest, Event
+from events.models import ContactRequest, Event, EventInterest
 from events.similar_interests import (
     contactable_source_events,
     public_match_for_event,
@@ -132,13 +132,14 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             from_event = self.request.GET.get("from_event", "")
             if from_event.isascii() and from_event.isdecimal() and len(from_event) < 18:
                 event = Event.objects.filter(pk=int(from_event)).first()
-                # A public event ID alone does not prove that the visitor
-                # actually shares this interest.
-                if event is not None and event.interests.filter(
-                    user=self.request.user,
-                    status="interested",
-                ).exists():
-                    related_label = public_match_for_event(event, profile_user)
+                # A public event ID is not proof of a shared interest.
+                if event is not None:
+                    viewer_interested = event.interests.filter(
+                        user=self.request.user,
+                        status=EventInterest.Status.INTERESTED,
+                    ).exists()
+                    if viewer_interested:
+                        related_label = public_match_for_event(event, profile_user)
             if not related_label:
                 related_label = related_interest_between_users(
                     self.request.user, profile_user
