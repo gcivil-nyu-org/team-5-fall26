@@ -194,9 +194,8 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
     ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     candidates = (
         EventInterest.objects.alias(has_active_ban=Exists(active_bans)).filter(
-            has_active_ban=False,
-
             matching_categories,
+            has_active_ban=False,
             status=EventInterest.Status.INTERESTED,
             event__status=Event.Status.UPCOMING,
             user__is_active=True,
