@@ -458,6 +458,15 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.assertEqual(reverse_request.pk, first.pk)
         self.assertEqual(ContactRequest.objects.count(), 1)
 
+        self.client.force_login(self.runner)
+        response = self.client.post(
+            reverse("message_user", args=[self.viewer.pk]),
+            {"event": self.other_sports.pk, "message": "Second request"},
+            follow=True,
+        )
+        self.assertContains(response, "already sent you a contact request")
+        self.assertEqual(ContactRequest.objects.count(), 1)
+
     def test_banned_user_is_not_suggested_or_contactable(self):
         """Bans must block discovery and requests even if is_active is True."""
         UserBan.objects.create(
