@@ -356,7 +356,9 @@ class BanInteractionTests(TestCase):
         )
         self.assertFalse(created)
         self.assertIsNone(contact)
-        self.assertFalse(Notification.objects.filter(contact_request__isnull=False).exists())
+        self.assertFalse(
+            Notification.objects.filter(contact_request__isnull=False).exists()
+        )
 
     def test_browsing_and_polling_keep_automatic_read_tracking(self):
         self.accept_contact()
