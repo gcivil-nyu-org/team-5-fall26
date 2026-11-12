@@ -447,26 +447,20 @@ class ConcurrentContactNotificationTests(TransactionTestCase):
         self.assertIsNotNone(Notification.objects.get().read_at)
 
     def test_reciprocal_requests_do_not_deadlock(self):
+        """Concurrent opposite requests should create one pending invitation."""
         self.sender.share_profile_with_attendees = True
         self.sender.save()
-        delivery_barrier = Barrier(2)
 
-        def deliver(contact_request):
-            notification = notify_contact_request(contact_request)
-            # Both sender locks remain held until the transactions commit.
-            delivery_barrier.wait(timeout=10)
-            return notification
-
-        with patch(
-            "events.community_views.notify_contact_request", side_effect=deliver
-        ):
-            results = self.run_concurrently(
-                send_contact_request,
-                [
-                    (self.sender.pk, (self.event.pk, self.recipient.pk)),
-                    (self.recipient.pk, (self.event.pk, self.sender.pk)),
-                ],
-            )
+        # Pair-wide duplicate prevention now allows only one notification.
+        # Do not wait for both delivery callbacks: the second is intentionally
+        # suppressed after the first transaction commits.
+        results = self.run_concurrently(
+            send_contact_request,
+            [
+                (self.sender.pk, (self.event.pk, self.recipient.pk)),
+                (self.recipient.pk, (self.event.pk, self.sender.pk)),
+            ],
+        )
         self.assertEqual(results, [302, 302])
-        self.assertEqual(ContactRequest.objects.count(), 2)
-        self.assertEqual(Notification.objects.filter(read_at__isnull=True).count(), 2)
+        self.assertEqual(ContactRequest.objects.count(), 1)
+        self.assertEqual(Notification.objects.filter(read_at__isnull=True).count(), 1)
