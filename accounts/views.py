@@ -132,12 +132,14 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             from_event = self.request.GET.get("from_event", "")
             if from_event.isascii() and from_event.isdecimal() and len(from_event) < 18:
                 event = Event.objects.filter(pk=int(from_event)).first()
-                if event is not None and EventInterest.objects.filter(
-                    event=event,
-                    user=self.request.user,
-                    status=EventInterest.Status.INTERESTED,
-                ).exists():
-                    related_label = public_match_for_event(event, profile_user)
+                if event is not None:
+                    viewer_interested = EventInterest.objects.filter(
+                        event=event,
+                        user=self.request.user,
+                        status=EventInterest.Status.INTERESTED,
+                    ).exists()
+                    if viewer_interested:
+                        related_label = public_match_for_event(event, profile_user)
             context["similar_interest_label"] = related_label
         else:
             context["can_message"] = False
