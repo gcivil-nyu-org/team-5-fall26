@@ -11,7 +11,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils.html import escape
 
-from events.models import Event, Registration
+from events.models import Event, EventInterest, Registration, SearchHistory
 from events.search import search_events
 from events.services import sync_events
 from events.views import SEARCH_PAGE_SIZE
@@ -188,6 +188,30 @@ class SearchViewTests(TestCase):
             list(signed_in.context["events"]), list(anonymous.context["events"])
         )
 
+    def test_signed_in_searches_are_normalized_deduplicated_and_private(self):
+        """Only authenticated first-page searches enter a user's history."""
+        self.client.get(reverse("search"), {"q": "yoga"})
+        self.assertFalse(SearchHistory.objects.exists())
+
+        self.client.force_login(self.user)
+        first = self.client.get(
+            reverse("search"),
+            {"q": "  YOGA  ", "category": "fitness"},
+        )
+        self.assertEqual(first.status_code, 200)
+
+        repeated = self.client.get(
+            reverse("search"),
+            {"q": "yoga", "category": "fitness"},
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.client.get(reverse("search"), {"q": "yoga", "page": 2})
+
+        history = SearchHistory.objects.filter(user=self.user)
+        self.assertEqual(history.count(), 1)
+        self.assertEqual(history.get().query, "yoga")
+        self.assertEqual(history.get().filters, {"category": ["fitness"]})
+
     def test_landing_search_form_is_available_to_all_visitors(self):
         """Search is available while the existing landing access stays intact."""
         for signed_in in (False, True):
@@ -343,3 +367,74 @@ class SearchViewTests(TestCase):
                     reverse("search"), {"q": "yoga", "page": page}
                 )
                 self.assertEqual(response.status_code, 404)
+
+
+class RecommendationViewTests(TestCase):
+    """Signed-in visitors see private, recent-search-based recommendations."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user(username="recommender")
+        cls.yoga = make_event(
+            "recommended-yoga",
+            title="Morning Yoga",
+            categories="Fitness | Yoga",
+            start_time=datetime(2099, 1, 15, 9, tzinfo=NYC),
+        )
+        cls.registered = make_event(
+            "registered-yoga",
+            title="Registered Yoga",
+            start_time=datetime(2099, 1, 16, 9, tzinfo=NYC),
+        )
+        cls.interested = make_event(
+            "interested-yoga",
+            title="Interested Yoga",
+            start_time=datetime(2099, 1, 17, 9, tzinfo=NYC),
+        )
+        cls.past = make_event(
+            "past-yoga",
+            title="Past Yoga",
+            status=Event.Status.DONE,
+            start_time=datetime(2020, 1, 15, 9, tzinfo=NYC),
+        )
+        cls.cancelled = make_event(
+            "cancelled-yoga",
+            title="Cancelled Yoga",
+            start_time=datetime(2099, 1, 18, 9, tzinfo=NYC),
+        )
+
+    def setUp(self):
+        Registration.objects.create(event=self.registered, user=self.user)
+        EventInterest.objects.create(event=self.interested, user=self.user)
+        SearchHistory.objects.create(user=self.user, query="yoga")
+
+    def test_home_recommends_only_open_unseen_events_and_avoids_duplicates(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("landing"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["recommendations"], [self.yoga])
+        self.assertNotIn(self.yoga, response.context["events"])
+        self.assertContains(response, "Recommended for you")
+        self.assertContains(response, "Clear search history")
+
+    def test_search_history_can_be_cleared(self):
+        self.client.force_login(self.user)
+        response = self.client.post(reverse("clear_search_history"))
+
+        self.assertRedirects(response, reverse("landing"))
+        self.assertFalse(SearchHistory.objects.filter(user=self.user).exists())
+        self.assertEqual(
+            self.client.get(reverse("landing")).context["recommendations"],
+            [],
+        )
+
+    def test_clear_history_requires_authentication_and_post(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("clear_search_history"))
+        self.assertEqual(response.status_code, 405)
+
+        self.client.logout()
+        response = self.client.post(reverse("clear_search_history"))
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(SearchHistory.objects.filter(user=self.user).exists())
