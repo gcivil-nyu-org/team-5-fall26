@@ -65,6 +65,16 @@ class AccountSettingsForm(forms.ModelForm):
         required=False,
     )
 
+    discoverable_for_similar_events = forms.BooleanField(
+        label="Show my public profile for similar events",
+        help_text=(
+            "People browsing events with related activities can discover "
+            "your public profile. Only a shared event category is shown. "
+            "You must also enable profile sharing above."
+        ),
+        required=False,
+    )
+
     class Meta:
         """Expose only profile fields the account owner may edit."""
 
@@ -76,6 +86,7 @@ class AccountSettingsForm(forms.ModelForm):
             "pronouns",
             "interests",
             "share_profile_with_attendees",
+            "discoverable_for_similar_events",
         )
         widgets = {
             "profile_photo": ProfilePhotoInput(
