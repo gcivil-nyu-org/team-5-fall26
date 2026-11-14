@@ -139,7 +139,9 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
                         status=EventInterest.Status.INTERESTED,
                     ).exists()
                     if viewer_interested:
-                        related_label = public_match_for_event(event, profile_user, self.request.user)
+                        related_label = public_match_for_event(
+                            event, profile_user, self.request.user
+                        )
             context["similar_interest_label"] = related_label
         else:
             context["can_message"] = False
