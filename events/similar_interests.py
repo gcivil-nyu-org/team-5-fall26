@@ -50,9 +50,7 @@ def shares_selected_interest(source_tags, other_categories, viewer, member):
         return False
 
     source_names = {tag.casefold() for tag in source_tags}
-    other_names = {
-        tag.casefold() for tag in category_tags(other_categories)
-    }
+    other_names = {tag.casefold() for tag in category_tags(other_categories)}
     for choice in shared_choices:
         categories = {
             name.casefold() for name in INTEREST_EVENT_CATEGORIES.get(choice, ())
@@ -118,7 +116,8 @@ def public_match_for_event(event, recipient, viewer):
     """Return a related public interest for an opted-in member, if any.
 
     Never reveal the name or details of an event the recipient follows.
-    The shared category is the only relationship disclosed.
+    Both people must still select a relevant shared interest; only the
+    matching event category is disclosed.
     """
     if (
         viewer is None
@@ -160,7 +159,8 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
 
     Users on this event's interested or registered lists are left out to avoid
     duplicate suggestions. Both public-profile sharing and the separate
-    similar-event discovery consent must be enabled.
+    similar-event discovery consent must be enabled, and both people must
+    currently select a shared My Interests topic relevant to the events.
     """
     tags = category_tags(event.categories)
     if (
