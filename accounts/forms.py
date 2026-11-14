@@ -47,7 +47,8 @@ class AccountSettingsForm(forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         help_text=(
             "Choose any interests that describe you. "
-            "You can change these at any time."
+            "Similar-event suggestions use your saved choices and update "
+            "when you change them."
         ),
     )
 
@@ -68,9 +69,9 @@ class AccountSettingsForm(forms.ModelForm):
     discoverable_for_similar_events = forms.BooleanField(
         label="Show my public profile for similar events",
         help_text=(
-            "People browsing events with related activities can discover "
-            "your public profile. Only a shared event category is shown. "
-            "You must also enable profile sharing above."
+            "People browsing related events can discover your public profile "
+            "when your saved interests match theirs. Only a shared event "
+            "category is shown. You must also enable profile sharing above."
         ),
         required=False,
     )
