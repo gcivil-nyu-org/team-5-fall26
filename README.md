@@ -521,10 +521,14 @@ category group. The section only shows public profile links and a general
 category label, not a user's email or the title of their other event.
 
 Discovery is **off by default**. Members must enable both profile sharing and
-the separate similar-event discovery setting in Account Settings. Opting out
-of either hides them immediately. Banned or inactive members, past/cancelled
-events, and members already on the current event's Interested or registration
-lists are not suggested. Signed-out and banned viewers cannot browse these
+the separate similar-event discovery setting in Account Settings. Recommendations
+also require both people to have a currently selected matching topic under
+**My Interests**, relevant to the event categories. Deselecting a shared topic
+removes the recommendation on the next page load, and reselecting it can restore
+the match. The separate direct-contact preference does not control discovery.
+Opting out of profile sharing or discovery also hides a member immediately.
+Banned or inactive members, past/cancelled events, and members already on the
+current event's Interested or registration lists are not suggested. Signed-out and banned viewers cannot browse these
 suggestions. Public profiles only show a related-interest explanation when the
 viewer actually follows the referenced event and the owner is still opted in.
 
