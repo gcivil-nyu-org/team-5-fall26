@@ -34,7 +34,7 @@ def make_event(guid, categories, status=Event.Status.UPCOMING, **fields):
     )
 
 
-def make_user(username, *, sharing=True, similar=True):
+def make_user(username, *, sharing=True, similar=True, interests=("sports",)):
     """Create a member with independently controlled visibility settings."""
     return User.objects.create_user(
         username=username,
@@ -43,6 +43,7 @@ def make_user(username, *, sharing=True, similar=True):
         display_name=username.capitalize(),
         share_profile_with_attendees=sharing,
         discoverable_for_similar_events=similar,
+        interests=list(interests),
     )
 
 
@@ -124,11 +125,91 @@ class SimilarInterestDiscoveryTests(TestCase):
         self.assertNotIn(person, [item["user"] for item in self.suggestions()])
 
     def test_no_partial_word_category_match(self):
+        self.viewer.interests = ["arts"]
+        self.viewer.save(update_fields=["interests"])
         art = make_event("art", "Art")
         martial = make_event("martial", "Martial Arts")
-        person = make_user("martialmember")
+        person = make_user("martialmember", interests=("arts",))
         EventInterest.objects.create(user=person, event=martial)
         self.assertEqual(self.suggestions(event=art), [])
+
+    def test_removing_saved_interest_updates_event_and_profile_suggestions(self):
+        """Saving My Interests removes a match without changing event attendance."""
+        self.client.force_login(self.viewer)
+        detail_url = reverse("event_detail", args=[self.event.pk])
+        profile_url = reverse("public_profile", args=[self.runner.username])
+        EventInterest.objects.create(user=self.viewer, event=self.event)
+
+        self.assertContains(self.client.get(detail_url), self.runner.username)
+        self.assertContains(
+            self.client.get(profile_url, {"from_event": self.event.pk}),
+            "Related event interest:",
+        )
+
+        form = AccountSettingsForm(
+            {
+                "interests": ["nature"],
+                "share_profile_with_attendees": "on",
+                "discoverable_for_similar_events": "on",
+            },
+            instance=self.runner,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.runner.refresh_from_db()
+        self.assertEqual(self.runner.interests, ["nature"])
+
+        self.assertEqual(self.suggestions(), [])
+        self.assertNotContains(self.client.get(detail_url), self.runner.username)
+        self.assertNotContains(
+            self.client.get(profile_url, {"from_event": self.event.pk}),
+            "Related event interest:",
+        )
+
+        self.runner.interests = ["sports"]
+        self.runner.save(update_fields=["interests"])
+        self.assertEqual([item["user"] for item in self.suggestions()], [self.runner])
+
+    def test_viewer_changing_my_interests_updates_discovery(self):
+        """A suggestion also goes away when the browsing user removes the match."""
+        self.assertEqual([item["user"] for item in self.suggestions()], [self.runner])
+        self.viewer.interests = ["nature"]
+        self.viewer.save(update_fields=["interests"])
+        self.assertEqual(self.suggestions(), [])
+
+        self.viewer.interests = ["sports"]
+        self.viewer.save(update_fields=["interests"])
+        self.assertEqual([item["user"] for item in self.suggestions()], [self.runner])
+
+    def test_shared_preference_must_describe_the_relevant_event_categories(self):
+        """An unrelated shared checkbox cannot justify a sports recommendation."""
+        self.viewer.interests = ["nature"]
+        self.viewer.save(update_fields=["interests"])
+        self.runner.interests = ["nature"]
+        self.runner.save(update_fields=["interests"])
+        self.assertEqual(self.suggestions(), [])
+
+    def test_unrelated_other_preference_is_not_a_wildcard(self):
+        """The broad Other preference must not expose unrelated profiles."""
+        self.viewer.interests = ["other"]
+        self.viewer.save(update_fields=["interests"])
+        self.runner.interests = ["other"]
+        self.runner.save(update_fields=["interests"])
+        self.assertEqual(self.suggestions(), [])
+
+    def test_matching_nature_preference_finds_nature_events(self):
+        """A separate selected topic can produce a real match."""
+        self.viewer.interests = ["nature"]
+        self.viewer.save(update_fields=["interests"])
+        self.runner.interests = ["nature"]
+        self.runner.save(update_fields=["interests"])
+        source = make_event("nature-source", "Nature")
+        related = make_event("nature-related", "Hiking")
+        EventInterest.objects.create(user=self.runner, event=related)
+        self.assertEqual(
+            [item["user"] for item in self.suggestions(event=source)],
+            [self.runner],
+        )
 
     def test_hidden_or_not_separately_opted_in_profiles_are_excluded(self):
         no_profile = make_user("noprofile", sharing=False, similar=True)
