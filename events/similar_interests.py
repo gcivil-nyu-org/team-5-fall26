@@ -16,6 +16,52 @@ from .models import Event, EventInterest, Registration
 DEFAULT_SUGGESTION_LIMIT = 6
 
 
+# Saved "My Interests" choices use different identifiers from NYC Parks
+# event categories. Only count an interest when both event categories support
+# that specific choice; selecting "other" does not match every event.
+INTEREST_EVENT_CATEGORIES = {
+    "walking": ("Walking", "Hiking"),
+    "gardening": ("Gardening",),
+    "volunteering": CATEGORY_NAMES["volunteer"],
+    "nature": CATEGORY_NAMES["nature"],
+    "sports": (
+        *CATEGORY_NAMES["sports"],
+        *CATEGORY_NAMES["fitness"],
+        *CATEGORY_NAMES["yoga"],
+    ),
+    "photography": ("Photography",),
+    "community": ("Community Events", *CATEGORY_NAMES["festivals"]),
+    "cleanup": ("Park Cleanup", "Clean Up", "Cleanup", "It's My Park"),
+    "arts": (
+        *CATEGORY_NAMES["art"],
+        *CATEGORY_NAMES["dance"],
+        *CATEGORY_NAMES["music-film"],
+    ),
+}
+
+
+def shares_selected_interest(source_tags, other_categories, viewer, member):
+    """Confirm a saved interest still belongs to both people and both events."""
+    if viewer is None or not viewer.is_authenticated:
+        return False
+
+    shared_choices = set(viewer.interests or []) & set(member.interests or [])
+    if not shared_choices:
+        return False
+
+    source_names = {tag.casefold() for tag in source_tags}
+    other_names = {
+        tag.casefold() for tag in category_tags(other_categories)
+    }
+    for choice in shared_choices:
+        categories = {
+            name.casefold() for name in INTEREST_EVENT_CATEGORIES.get(choice, ())
+        }
+        if source_names & categories and other_names & categories:
+            return True
+    return False
+
+
 def available_event(event):
     """Accept only live, non-cancelled events, even before the hourly sync."""
     return event.is_open and not event.is_cancelled
@@ -68,14 +114,16 @@ def shared_interest_label(source_tags, other_categories):
     return None
 
 
-def public_match_for_event(event, recipient):
+def public_match_for_event(event, recipient, viewer):
     """Return a related public interest for an opted-in member, if any.
 
     Never reveal the name or details of an event the recipient follows.
     The shared category is the only relationship disclosed.
     """
     if (
-        not available_event(event)
+        viewer is None
+        or not viewer.is_authenticated
+        or not available_event(event)
         or not category_tags(event.categories)
         or not recipient.share_profile_with_attendees
         or not recipient.discoverable_for_similar_events
@@ -100,7 +148,9 @@ def public_match_for_event(event, recipient):
         if not available_event(related_event):
             continue
         label = shared_interest_label(source_tags, related_event.categories)
-        if label:
+        if label and shares_selected_interest(
+            source_tags, related_event.categories, viewer, recipient
+        ):
             return label
     return None
 
@@ -113,7 +163,14 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
     similar-event discovery consent must be enabled.
     """
     tags = category_tags(event.categories)
-    if not available_event(event) or not tags or limit < 1:
+    if (
+        not available_event(event)
+        or not tags
+        or limit < 1
+        or viewer is None
+        or not viewer.is_authenticated
+        or not viewer.interests
+    ):
         return []
 
     matching_categories = Q()
@@ -158,7 +215,9 @@ def find_similar_interest_users(event, viewer=None, limit=DEFAULT_SUGGESTION_LIM
         if interest.user_id in seen_users or not available_event(interest.event):
             continue
         label = shared_interest_label(tags, interest.event.categories)
-        if label is None:
+        if label is None or not shares_selected_interest(
+            tags, interest.event.categories, viewer, interest.user
+        ):
             continue
         seen_users.add(interest.user_id)
         suggestions.append({"user": interest.user, "shared_interest": label})
