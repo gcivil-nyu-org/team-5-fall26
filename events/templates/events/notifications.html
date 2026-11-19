@@ -20,8 +20,8 @@
             <li class="notification{% if not notification.read_at %} is-new{% endif %}">
                 <p class="notification-meta">
                     {% if not notification.read_at %}<span class="count-pill">New</span>{% endif %}
-                    {% timezone "America/New_York" %}{{ notification.created_at|date:"M j, Y, g:i A" }}{% endtimezone %} &middot;
-                    <a href="{% url 'event_detail' notification.event.pk %}">{{ notification.event.title }}</a>
+                    {% timezone "America/New_York" %}{{ notification.created_at|date:"M j, Y, g:i A" }}{% endtimezone %}{% if notification.event %} &middot;
+                    <a href="{% url 'event_detail' notification.event.pk %}">{{ notification.event.title }}</a>{% endif %}
                 </p>
                 <h2>{{ notification.subject }}</h2>
                 {% if notification.contact_request_id %}

@@ -1,0 +1,98 @@
+{% extends "accounts/base.html" %}
+{% load static %}
+
+{% block title %}Delete account{% endblock %}
+
+{% block extrastyle %}
+<link rel="stylesheet" href="{% static 'accounts/ban.css' %}">
+<style>
+  .delete-page {
+    max-width: 36rem;
+  }
+
+  .delete-warning {
+    margin: 1rem 0 1.5rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid #f1c4c4;
+    border-radius: 8px;
+    background: #fff5f5;
+    color: #8a1f1f;
+  }
+
+  .delete-warning ul {
+    margin: 0.75rem 0 0;
+    padding-left: 1.25rem;
+  }
+
+  .delete-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1.5rem;
+  }
+
+  .button.danger {
+    color: #fff;
+    background: #cf222e;
+    border-color: #a40e26;
+  }
+
+  .button.danger:hover {
+    background: #a40e26;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="delete-page">
+  <h1>Delete your account?</h1>
+
+  {% include 'accounts/_ban_banner.html' with ban=active_ban is_owner=True only %}
+
+  <div class="delete-warning" role="alert">
+    <p>
+      This permanently deletes your account and cannot be undone.
+    </p>
+    <ul>
+      <li>Your profile, settings, and login will be removed.</li>
+      <li>
+        {% if hosted_event_count %}
+          {{ hosted_event_count }} event{{ hosted_event_count|pluralize }} you host
+          will be deleted with your account.
+        {% else %}
+          Any events you host will be deleted with your account.
+        {% endif %}
+      </li>
+      <li>People registered for your events will be notified that those events are cancelled.</li>
+      <li>Registrations, messages, and other account data tied to you will be removed.</li>
+    </ul>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    <div>
+      <label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+      {{ form.email }}
+      {% if form.email.help_text %}
+        <p class="helptext">{{ form.email.help_text }}</p>
+      {% endif %}
+      {{ form.email.errors }}
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="errorlist">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="delete-actions">
+      <button type="submit" class="button danger">
+        Permanently delete account
+      </button>
+      <a class="button" href="{% url 'account_settings' %}">
+        Keep my account
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}
