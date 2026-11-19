@@ -407,7 +407,9 @@ class Notification(models.Model):
     )
     event = models.ForeignKey(
         Event,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="notifications",
     )
     contact_request = models.OneToOneField(

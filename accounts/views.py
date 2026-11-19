@@ -3,7 +3,7 @@
 import time
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, logout
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView
@@ -11,19 +11,20 @@ from django.contrib.messages.views import SuccessMessageMixin
 from django.core.cache import cache
 from django.db.models import Q
 from django.http import Http404
-from django.shortcuts import render, resolve_url
+from django.shortcuts import redirect, render, resolve_url
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
-from django.views.generic import CreateView, DetailView, UpdateView
+from django.views.generic import CreateView, DetailView, FormView, UpdateView
 
 from events.models import ContactRequest, Event, EventInterest
+from events.notifications import cancel_notice, notify_registered
 from events.ratings import host_rating_summary, latest_host_comments
 from events.similar_interests import public_match_for_event
 from events.photos import gallery_context
 from .ban_services import get_active_ban
-from .forms import AccountSettingsForm, LoginForm, RegistrationForm
+from .forms import AccountSettingsForm, DeleteAccountForm, LoginForm, RegistrationForm
 
 
 class AccountSettingsView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
@@ -47,6 +48,55 @@ class AccountSettingsView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
             interest_labels.get(value, value) for value in (self.object.interests or [])
         ]
         return context
+
+
+class DeleteAccountView(LoginRequiredMixin, FormView):
+    """Permanently delete the signed-in user's account after email confirmation."""
+
+    form_class = DeleteAccountForm
+    template_name = "accounts/delete_account.html"
+    success_url = reverse_lazy("landing")
+
+    def get_form_kwargs(self):
+        """Pass the signed-in user so the form can check the typed email."""
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        """Expose the active ban banner and hosted-event count on the confirm page."""
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context["active_ban"] = get_active_ban(user)
+        context["hosted_event_count"] = user.hosted_events.count()
+        return context
+
+    def form_valid(self, form):
+        """Notify registrants, log out, remove the photo, and delete the account."""
+        user = self.request.user
+        self._notify_registered_guests(user)
+        if user.profile_photo:
+            user.profile_photo.delete(save=False)
+        logout(self.request)
+        user.delete()
+        # Set the notice after logout so it lands in the new anonymous session.
+        messages.success(
+            self.request,
+            "Your account has been permanently deleted.",
+        )
+        return redirect(self.get_success_url())
+
+    def _notify_registered_guests(self, user):
+        """Tell registrants that each hosted event is cancelled before it is removed."""
+        hosted_events = user.hosted_events.exclude(status=Event.Status.CANCELLED)
+        for event in hosted_events:
+            subject, body = cancel_notice(event)
+            body = (
+                f"{body}\n\n"
+                "This event listing will be removed because the host "
+                "deleted their account."
+            )
+            notify_registered(event, subject, body)
 
 
 @method_decorator(never_cache, name="dispatch")

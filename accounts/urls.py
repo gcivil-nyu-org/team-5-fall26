@@ -17,6 +17,11 @@ from .views import RegisterView, CustomLoginView
 urlpatterns = [
     path("settings/", views.AccountSettingsView.as_view(), name="account_settings"),
     path(
+        "settings/delete/",
+        views.DeleteAccountView.as_view(),
+        name="delete_account",
+    ),
+    path(
         "profile/<str:username>/",
         views.PublicProfileView.as_view(),
         name="public_profile",

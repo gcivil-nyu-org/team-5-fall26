@@ -39,5 +39,8 @@
         <h2>Contact preferences</h2>
         <p>{{ profile_user.get_contact_permission_display }}</p>
     </section>
+
+    {% include "accounts/_delete_account_section.html" %}
+
     <a class="button" href="{% url 'landing' %}">Back to home</a>
 </div>

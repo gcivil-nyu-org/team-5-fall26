@@ -364,6 +364,7 @@ class BanMiddlewareTests(TestCase):
             ("event_detail", [self.event.pk]),
             ("public_profile", [self.peer.username]),
             ("account_settings", []),
+            ("delete_account", []),
             ("my_events", []),
             ("inbox", []),
             ("notifications", []),
