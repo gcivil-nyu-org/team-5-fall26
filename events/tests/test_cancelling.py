@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase
@@ -35,6 +36,10 @@ class CancelTestCase(TestCase):
         cls.fan = user("fan")
         cls.goer = user("goer")
         cls.bystander = user("bystander")
+        for member in (cls.host, cls.fan, cls.goer, cls.bystander):
+            EmailAddress.objects.create(
+                user=member, email=member.email, verified=True, primary=True
+            )
 
     def setUp(self):
         self.event = self.hosted("yoga")
@@ -88,6 +93,17 @@ class CancelEventTests(CancelTestCase):
         self.assertEqual(response.context["recipient_count"], 2)
         self.event.refresh_from_db()
         self.assertEqual(self.event.status, Event.Status.UPCOMING)
+
+    def test_cancellation_skips_unverified_email(self):
+        EmailAddress.objects.filter(user=self.goer).update(verified=False)
+        self.assertRedirects(self.cancel(), self.detail_url)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, Event.Status.CANCELLED)
+        self.assertEqual([email.to for email in mail.outbox], [[self.fan.email]])
+        self.assertEqual(
+            set(Notification.objects.values_list("recipient_id", flat=True)),
+            {self.fan.pk, self.goer.pk},
+        )
 
     def test_cancel_without_message(self):
         response = self.cancel()
