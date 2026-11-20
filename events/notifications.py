@@ -1,8 +1,10 @@
 """Event announcements and in-app contact request notifications."""
 
+from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mass_mail
+from django.db.models import Exists, OuterRef
 from django.utils import dateformat, timezone
 from django.utils.text import Truncator
 
@@ -78,25 +80,31 @@ def notify_registration_change(
 def notify_interested(event, subject, body, event_url):
     """Send a message to everyone interested in an event.
 
-    Each recipient gets an in-app notification and their own email, so no
-    one sees anyone else's address.
+    Everyone gets an in-app notification. Email is only sent to recipients
+    whose current address is verified, and each gets their own email.
 
     Returns:
         int: how many people were notified.
     """
-    recipients = list(interested_recipients(event))
+    verified_address = EmailAddress.objects.filter(
+        user_id=OuterRef("pk"), email__iexact=OuterRef("email"), verified=True
+    )
+    recipients = list(
+        interested_recipients(event).annotate(email_verified=Exists(verified_address))
+    )
     subject = Truncator(subject).chars(SUBJECT_MAX_LENGTH)
     Notification.objects.bulk_create(
         Notification(recipient=user, event=event, subject=subject, body=body)
         for user in recipients
     )
     email_body = f"{body}\n\nEvent details: {event_url}"
-    send_mass_mail(
-        [
-            (subject, email_body, settings.DEFAULT_FROM_EMAIL, [user.email])
-            for user in recipients
-        ]
-    )
+    email_messages = [
+        (subject, email_body, settings.DEFAULT_FROM_EMAIL, [user.email])
+        for user in recipients
+        if user.email and user.email_verified
+    ]
+    if email_messages:
+        send_mass_mail(email_messages)
     return len(recipients)
 
 
