@@ -1,8 +1,10 @@
 """Tests for hosts notifying interested attendees and the notifications page."""
 
 from datetime import datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import RequestFactory, TestCase
@@ -37,6 +39,10 @@ class NotifyTestCase(TestCase):
         cls.fan = user("fan")
         cls.second_fan = user("second_fan")
         cls.bystander = user("bystander")
+        for member in (cls.host, cls.fan, cls.second_fan, cls.bystander):
+            EmailAddress.objects.create(
+                user=member, email=member.email, verified=True, primary=True
+            )
 
     def setUp(self):
         self.event = self.hosted("yoga")
@@ -103,6 +109,31 @@ class HostMessageTests(NotifyTestCase):
         self.assertEqual(
             set(Notification.objects.values_list("recipient__username", flat=True)),
             {"fan", "second_fan"},
+        )
+
+    def test_unverified_address_receives_only_in_app_notification(self):
+        EmailAddress.objects.filter(user=self.second_fan).update(verified=False)
+        self.client.force_login(self.host)
+        self.assertRedirects(self.send(), self.detail_url)
+        self.assertEqual([email.to for email in mail.outbox], [[self.fan.email]])
+        self.assertEqual(
+            set(Notification.objects.values_list("recipient_id", flat=True)),
+            {self.fan.pk, self.second_fan.pk},
+        )
+
+    def test_missing_or_mismatched_verification_skips_email(self):
+        EmailAddress.objects.filter(user=self.fan).delete()
+        EmailAddress.objects.filter(user=self.second_fan).update(
+            email="previous@example.com"
+        )
+        self.client.force_login(self.host)
+        with patch("events.notifications.send_mass_mail") as send_mail:
+            self.assertRedirects(self.send(), self.detail_url)
+            send_mail.assert_not_called()
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(
+            set(Notification.objects.values_list("recipient_id", flat=True)),
+            {self.fan.pk, self.second_fan.pk},
         )
 
     def test_singular_count(self):
@@ -191,6 +222,12 @@ class ChangeNoticeTests(NotifyTestCase):
     def test_location_change_notifies(self):
         self.edit(location="Pier 6")
         self.assertIn("Where: Pier 6 (was Pier 1)", mail.outbox[0].body)
+
+    def test_event_changes_skip_unverified_email(self):
+        EmailAddress.objects.filter(user=self.second_fan).update(verified=False)
+        self.assertRedirects(self.edit(location="Pier 6"), self.detail_url)
+        self.assertEqual([email.to for email in mail.outbox], [[self.fan.email]])
+        self.assertEqual(Notification.objects.count(), 2)
 
     def test_other_changes_do_not_notify(self):
         response = self.edit(title="Sunrise Yoga")
