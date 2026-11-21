@@ -6,6 +6,7 @@ from django.urls import reverse
 
 from accounts.forms import LoginForm
 from accounts.models import User
+from accounts.views import CustomLoginView
 
 PASSWORD = "Tr1cky-Passphrase!"
 
@@ -76,7 +77,8 @@ class LoginViewTests(TestCase):
         response = self.client.post(self.url, {"username": "  ", "password": "bad"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(cache.get("login_attempts:"), 1)
+        key = CustomLoginView()._get_attempt_key("login:")
+        self.assertEqual(cache.get(key), 1)
 
     def test_logged_in_user_is_sent_home(self):
         """

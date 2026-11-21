@@ -225,6 +225,17 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Cache
+# Store cached values (login lockouts, assistant rate limits) in the database,
+# so every server process shares them and they survive restarts and deploys.
+# The accounts migration 0009 creates the table.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+    }
+}
+
 # Email
 # Use SMTP when credentials are provided; otherwise print emails to console.
 

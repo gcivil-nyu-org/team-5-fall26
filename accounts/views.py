@@ -1,5 +1,6 @@
 """Views for user account pages."""
 
+import hashlib
 import time
 from urllib.parse import urlencode
 from django.conf import settings
@@ -251,27 +252,68 @@ class CustomLoginView(LoginView):
         self.lock_expiry_timestamp = None
         self.locked_identifier = None
 
-    def _get_attempt_key(self, login_identifier: str) -> str:
+    def _lock_subjects(self, login_identifier: str) -> list[str]:
+        """
+        Return what failed attempts are counted against for this login text.
+
+        Login matches usernames and emails regardless of case, so attempts
+        are counted per matching account. Typing "Alice", "alice" or the
+        account's email all share one counter (#180). Text that matches no
+        account is counted by its lowercased form.
+
+        Args:
+            login_identifier: username or email entered in login form
+        Returns:
+            list of subject strings, one per matching account
+        """
+        identifier = login_identifier.strip()
+        user_ids = (
+            get_user_model()
+            ._default_manager.filter(
+                Q(username__iexact=identifier) | Q(email__iexact=identifier)
+            )
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+        subjects = [f"user:{pk}" for pk in user_ids]
+        return subjects or [f"login:{identifier.casefold()}"]
+
+    @staticmethod
+    def _cache_key(prefix: str, subject: str) -> str:
+        """Build a fixed-length cache key, so any typed text is safe to use."""
+        digest = hashlib.sha256(subject.encode()).hexdigest()
+        return f"{prefix}{digest}"
+
+    def _get_attempt_key(self, subject: str) -> str:
         """
         Generate cache key for counting failed login attempts.
 
         Args:
-            login_identifier: username or email entered in login form
+            subject: an account or login text from ``_lock_subjects``
         Returns:
             prefixed cache key string
         """
-        return f"{CACHE_KEY_ATTEMPTS}{login_identifier}"
+        return self._cache_key(CACHE_KEY_ATTEMPTS, subject)
 
-    def _get_lock_expiry_key(self, login_identifier: str) -> str:
+    def _get_lock_expiry_key(self, subject: str) -> str:
         """
         Generate cache key that stores the absolute lock expiry timestamp.
 
         Args:
-            login_identifier: username or email entered in login form
+            subject: an account or login text from ``_lock_subjects``
         Returns:
             prefixed cache key string
         """
-        return f"{CACHE_KEY_LOCK_EXPIRY}{login_identifier}"
+        return self._cache_key(CACHE_KEY_LOCK_EXPIRY, subject)
+
+    def _lock_expiry(self, subjects: list[str]):
+        """Return the latest lock expiry still in force for ``subjects``."""
+        now = time.time()
+        expiries = [
+            cache.get(self._get_lock_expiry_key(subject)) for subject in subjects
+        ]
+        active = [ts for ts in expiries if ts and ts > now]
+        return max(active) if active else None
 
     def dispatch(self, request, *args, **kwargs):
         """
@@ -283,11 +325,8 @@ class CustomLoginView(LoginView):
         self.locked_identifier = None
         if request.method == "POST":
             raw_username = request.POST.get("username", "").strip()
-            lock_expiry_key = self._get_lock_expiry_key(raw_username)
-            stored_lock_ts = cache.get(lock_expiry_key)
-
-            now = time.time()
-            if stored_lock_ts and stored_lock_ts > now:
+            stored_lock_ts = self._lock_expiry(self._lock_subjects(raw_username))
+            if stored_lock_ts:
                 self.lock_expiry_timestamp = stored_lock_ts
                 self.locked_identifier = raw_username
                 context = self.get_context_data()
@@ -314,12 +353,11 @@ class CustomLoginView(LoginView):
         Clear failed attempt counter and lock record from cache.
         Set sliding session timeout for 48 hours.
         """
-        # Clear failed attempts and lock key for this identifier
+        # Clear failed attempts and locks for every spelling of this account
         username_input = form.cleaned_data.get("username", "").strip()
-        attempt_key = self._get_attempt_key(username_input)
-        lock_expiry_key = self._get_lock_expiry_key(username_input)
-        cache.delete(attempt_key)
-        cache.delete(lock_expiry_key)
+        for subject in self._lock_subjects(username_input):
+            cache.delete(self._get_attempt_key(subject))
+            cache.delete(self._get_lock_expiry_key(subject))
 
         # 48h sliding session expiry
         self.request.session.set_expiry(SESSION_LIFESPAN_SECONDS)
@@ -342,18 +380,23 @@ class CustomLoginView(LoginView):
         if not username_input:
             username_input = self.request.POST.get("username", "").strip()
 
-        attempt_key = self._get_attempt_key(username_input)
-        lock_expiry_key = self._get_lock_expiry_key(username_input)
-
-        current_attempts = cache.get(attempt_key, 0) + 1
-        cache.set(attempt_key, current_attempts, LOCKOUT_DURATION_SECONDS)
+        current_attempts = 0
+        for subject in self._lock_subjects(username_input):
+            attempt_key = self._get_attempt_key(subject)
+            attempts = cache.get(attempt_key, 0) + 1
+            cache.set(attempt_key, attempts, LOCKOUT_DURATION_SECONDS)
+            if attempts >= LOCKOUT_THRESHOLD:
+                cache.set(
+                    self._get_lock_expiry_key(subject),
+                    time.time() + LOCKOUT_DURATION_SECONDS,
+                    LOCKOUT_DURATION_SECONDS,
+                )
+            current_attempts = max(current_attempts, attempts)
 
         remaining_attempts = LOCKOUT_THRESHOLD - current_attempts
 
         if current_attempts >= LOCKOUT_THRESHOLD:
-            lock_ts = time.time() + LOCKOUT_DURATION_SECONDS
-            cache.set(lock_expiry_key, lock_ts, LOCKOUT_DURATION_SECONDS)
-            self.lock_expiry_timestamp = lock_ts
+            self.lock_expiry_timestamp = time.time() + LOCKOUT_DURATION_SECONDS
             self.locked_identifier = username_input
             remaining_attempts = 0
         else:

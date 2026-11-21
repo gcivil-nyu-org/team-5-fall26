@@ -8,6 +8,7 @@ from django.core.cache import cache
 
 from accounts.forms import RegistrationForm
 from accounts.models import User
+from accounts.views import CustomLoginView
 
 PASSWORD = "Tr1cky-Passphrase!"
 
@@ -123,9 +124,11 @@ class CustomLoginViewTests(TestCase):
             username="testuser", email="test@example.com", password=PASSWORD
         )
         cache.clear()
-        self.attempt_key_prefix = "login_attempts:"
-        # Match the constant defined in views.py
-        self.lock_key_prefix = "login_lock_expiry:"
+        # Attempts are counted per account, under the view's own cache keys.
+        view = CustomLoginView()
+        subject = f"user:{self.test_user.pk}"
+        self.attempt_key = view._get_attempt_key(subject)
+        self.lock_key = view._get_lock_expiry_key(subject)
 
     def test_login_with_username_success(self):
         """User can log in by providing their username and correct password."""
@@ -151,7 +154,7 @@ class CustomLoginViewTests(TestCase):
         self.client.post(
             self.login_url, {"username": "testuser", "password": "WrongPass"}
         )
-        stored_count = cache.get(f"{self.attempt_key_prefix}testuser")
+        stored_count = cache.get(self.attempt_key)
         self.assertEqual(stored_count, 1)
 
     def test_lockout_after_five_failed_attempts(self):
@@ -160,8 +163,8 @@ class CustomLoginViewTests(TestCase):
         message and lock key is set.
         """
         login_data = {"username": "testuser", "password": "wrongpass"}
-        attempt_key = f"{self.attempt_key_prefix}testuser"
-        lock_key = f"{self.lock_key_prefix}testuser"
+        attempt_key = self.attempt_key
+        lock_key = self.lock_key
 
         # 5 failed tries
         for _ in range(5):
@@ -191,7 +194,7 @@ class CustomLoginViewTests(TestCase):
     def test_locked_state_blocks_login_before_validation(self):
         """If identifier is locked, dispatch blocks request before credential check."""
         # Set lock cache key directly
-        lock_key = f"{self.lock_key_prefix}testuser"
+        lock_key = self.lock_key
         future_ts = time.time() + 600
         cache.set(lock_key, future_ts, 600)
 
@@ -208,8 +211,8 @@ class CustomLoginViewTests(TestCase):
         wrong_payload = {"username": "testuser", "password": "WrongPass"}
         self.client.post(self.login_url, wrong_payload)
         self.client.post(self.login_url, {"username": "testuser", "password": PASSWORD})
-        self.assertIsNone(cache.get(f"{self.attempt_key_prefix}testuser"))
-        self.assertIsNone(cache.get(f"{self.lock_key_prefix}testuser"))
+        self.assertIsNone(cache.get(self.attempt_key))
+        self.assertIsNone(cache.get(self.lock_key))
 
     def test_session_expiry_set_to_48_hours(self):
         """Successful login sets session expiry to 48 hours of inactivity."""
