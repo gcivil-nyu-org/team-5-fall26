@@ -1,12 +1,11 @@
 """Answer questions that earlier versions of the assistant forwarded.
 
-Staff answer them in the admin, and the answer reaches the asker in chat,
-by notification, and by email when their address is verified.
+Staff answer them in the admin, and the answer reaches the asker by email,
+notification, and in their chat.
 """
 
 import logging
 
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db.models import Q
@@ -60,13 +59,7 @@ def answer_inquiry(inquiry, answer, answered_by):
                 subject="Your question was answered",
                 body=body,
             )
-        # A registered address is not necessarily owned by the asker.
-        if (
-            asker.email
-            and EmailAddress.objects.filter(
-                user=asker, email__iexact=asker.email, verified=True
-            ).exists()
-        ):
+        if asker.email:
             send_mail(
                 "Your question was answered",
                 body,
