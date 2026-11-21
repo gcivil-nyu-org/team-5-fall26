@@ -4,6 +4,19 @@
     color: #24352c;
 }
 
+/* Short inbox pages still put the footer at the bottom of the screen (#156). */
+.messages-body {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.messages-body > .messages-page {
+    flex: 1 0 auto;
+}
+
 .messages-page h1 {
     margin: 24px 0;
     color: #244b37;
@@ -83,13 +96,31 @@
 }
 
 .chat-page {
-    display: flex;
-    flex-direction: column;
-    height: 100dvh;
     margin: 0;
     background: #f0f3f1;
     color: #24352c;
     font-family: Arial, Helvetica, sans-serif;
+}
+
+/* The header and conversation fill exactly one screen, so the messages get
+ * the full height and the site footer starts below it (#156). */
+.chat-viewport {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+}
+
+.chat-page .site-footer {
+    margin-top: 0;
+}
+
+/* On phones the fixed tab bar covers the bottom 64px; keep the composer above it. */
+@media (max-width: 720px) {
+    body:has(.tabbar) .chat-viewport {
+        height: calc(100vh - 64px - env(safe-area-inset-bottom));
+        height: calc(100dvh - 64px - env(safe-area-inset-bottom));
+    }
 }
 
 .chat-shell {
