@@ -101,7 +101,7 @@ class NotificationBellTests(TestCase):
             body="Hello",
         )
         data = self.client.post(self.url).json()
-        self.assertIn(f'href="{reverse("notifications")}"', data["html"])
+        self.assertIn(f'href="{reverse("notifications")}#notification-', data["html"])
         self.assertTrue(
             Notification.objects.get(contact_request=contact).read_at is None
         )
@@ -161,10 +161,11 @@ class NotificationBellTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
 
-    def test_bell_items_link_to_their_event(self):
-        """Event updates link to the event page."""
+    def test_bell_items_open_the_full_message(self):
+        """Event updates open their full message on the Notifications page (#182)."""
         html = self.client.post(self.url).json()["html"]
-        self.assertIn(reverse("event_detail", args=[self.event.pk]), html)
+        self.assertIn(f'href="{reverse("notifications")}#notification-', html)
+        self.assertNotIn(reverse("event_detail", args=[self.event.pk]), html)
 
     def test_banned_members_can_open_the_bell(self):
         """A ban blocks submissions, but opening the bell is only reading."""

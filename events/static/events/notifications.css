@@ -25,6 +25,8 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-card);
     background: var(--surface);
+    /* Opened from the bell: leave some room above the message. */
+    scroll-margin-top: 96px;
 }
 
 .notification.is-new {
@@ -95,4 +97,10 @@
 .notification-actions a:focus-visible {
     outline: 2px solid var(--leaf);
     outline-offset: 3px;
+}
+
+/* The message opened from the bell is outlined so it is easy to spot (#182). */
+.notification:target {
+    outline: 2px solid #2f6b4a;
+    outline-offset: 2px;
 }

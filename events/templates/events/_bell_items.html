@@ -2,7 +2,8 @@
 <ul class="bell-list">
     {% for notification in notifications %}
     <li class="bell-item{% if notification.pk in newly_read or not notification.read_at %} is-new{% endif %}">
-        <a href="{% if notification.contact_request_id %}{% url 'notifications' %}{% else %}{% url 'event_detail' notification.event_id %}{% endif %}">
+        {# Open the full message on the Notifications page, not the event (#182). #}
+        <a href="{% url 'notifications' %}#notification-{{ notification.pk }}">
             <span class="bell-subject">{{ notification.subject }}</span>
             <span class="bell-meta">{{ notification.event.title }} &middot; {% timezone "America/New_York" %}{{ notification.created_at|date:"M j, g:i A" }}{% endtimezone %}</span>
         </a>

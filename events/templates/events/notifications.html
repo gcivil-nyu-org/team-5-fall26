@@ -17,7 +17,7 @@
         {% if notifications %}
         <ul class="notification-list">
             {% for notification in notifications %}
-            <li class="notification{% if not notification.read_at %} is-new{% endif %}">
+            <li class="notification{% if not notification.read_at %} is-new{% endif %}" id="notification-{{ notification.pk }}">
                 <p class="notification-meta">
                     {% if not notification.read_at %}<span class="count-pill">New</span>{% endif %}
                     {% timezone "America/New_York" %}{{ notification.created_at|date:"M j, Y, g:i A" }}{% endtimezone %} &middot;
