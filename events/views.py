@@ -47,6 +47,7 @@ from .filters import (
     EventFilterForm,
     filter_events,
     filter_params,
+    nyc_today,
 )
 from .forms import (
     CancelEventForm,
@@ -928,6 +929,10 @@ class LandingView(TemplateView):
         )
 
         context["events"] = []
+        # Search lists nothing without a filter, so "all upcoming" starts today.
+        context["all_upcoming_url"] = (
+            reverse("search") + "?" + urlencode({"date_from": nyc_today().isoformat()})
+        )
         context["archived_events"] = []
         context["recommendations"] = []
         context["has_search_history"] = False

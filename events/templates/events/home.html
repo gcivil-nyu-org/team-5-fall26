@@ -68,11 +68,9 @@
         <section class="events-section" aria-labelledby="events-heading">
             <div class="section-head">
                 <h2 id="events-heading">Upcoming events</h2>
-                {% if events %}
-                <span class="count-pill">
-                    {{ events|length }} event{{ events|length|pluralize }}
-                </span>
-                {% endif %}
+                <a class="section-link" href="{{ all_upcoming_url }}">
+                    View all upcoming events →
+                </a>
             </div>
 
             {% if events %}
