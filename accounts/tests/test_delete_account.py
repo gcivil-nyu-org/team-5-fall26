@@ -10,7 +10,7 @@ from django.urls import reverse
 
 from accounts.ban_services import apply_ban
 from accounts.forms import DeleteAccountForm
-from events.models import Event, Notification, Registration
+from events.models import Event, EventInterest, Notification, Registration
 
 NYC = ZoneInfo("America/New_York")
 User = get_user_model()
@@ -160,10 +160,13 @@ class DeleteAccountTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
 
-    def test_registered_guests_are_notified_that_hosted_events_are_cancelled(self):
-        """Registrants get a cancel notice before hosted events are removed."""
+    def test_open_event_guests_are_notified_that_hosted_events_are_cancelled(self):
+        """Registered and Interested guests get a cancel notice for open events."""
         guest = User.objects.create_user(
             "cara", "cara@example.com", PASSWORD, display_name="Cara"
+        )
+        fan = User.objects.create_user(
+            "erin", "erin@example.com", PASSWORD, display_name="Erin"
         )
         bystander = User.objects.create_user("dan", "dan@example.com", PASSWORD)
         hosted = Event.objects.create(
@@ -176,6 +179,7 @@ class DeleteAccountTests(TestCase):
         )
         Registration.objects.create(user=guest, event=hosted, party_size=2)
         Registration.objects.create(user=self.user, event=hosted, party_size=1)
+        EventInterest.objects.create(event=hosted, user=fan)
 
         response = self.client.post(self.url, {"email": self.user.email})
         self.assertRedirects(response, reverse("landing"))
@@ -186,11 +190,14 @@ class DeleteAccountTests(TestCase):
         self.assertIn("Alice cancelled Morning Stretch.", notice.body)
         self.assertIn("host deleted their account", notice.body)
         self.assertIsNone(notice.event_id)
+        self.assertTrue(Notification.objects.filter(recipient=fan).exists())
         self.assertFalse(Notification.objects.filter(recipient=bystander).exists())
         self.assertFalse(Notification.objects.filter(recipient=self.user).exists())
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["cara@example.com"])
+        self.assertEqual(
+            sorted(email.to[0] for email in mail.outbox),
+            ["cara@example.com", "erin@example.com"],
+        )
         self.assertEqual(mail.outbox[0].subject, "Cancelled: Morning Stretch")
         self.assertIn("Alice cancelled Morning Stretch.", mail.outbox[0].body)
 
@@ -198,3 +205,32 @@ class DeleteAccountTests(TestCase):
         page = self.client.get(reverse("notifications"))
         self.assertContains(page, "Cancelled: Morning Stretch")
         self.assertContains(page, "host deleted their account")
+
+    def test_past_and_done_hosted_events_do_not_send_cancel_notices(self):
+        """Ended or archived hosted events are removed quietly."""
+        guest = User.objects.create_user("finn", "finn@example.com", PASSWORD)
+        past = Event.objects.create(
+            guid=Event.HOSTED_GUID_PREFIX + "past-walk",
+            title="Last Week Walk",
+            host=self.user,
+            content_hash="e" * 64,
+            start_time=datetime(2020, 1, 1, 10, tzinfo=NYC),
+            end_time=datetime(2020, 1, 1, 11, tzinfo=NYC),
+            status=Event.Status.UPCOMING,
+        )
+        done = Event.objects.create(
+            guid=Event.HOSTED_GUID_PREFIX + "done-walk",
+            title="Finished Meetup",
+            host=self.user,
+            content_hash="f" * 64,
+            start_time=datetime(2099, 5, 1, 10, tzinfo=NYC),
+            status=Event.Status.DONE,
+        )
+        Registration.objects.create(user=guest, event=past)
+        Registration.objects.create(user=guest, event=done)
+
+        response = self.client.post(self.url, {"email": self.user.email})
+        self.assertRedirects(response, reverse("landing"))
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        self.assertFalse(Notification.objects.filter(recipient=guest).exists())
+        self.assertEqual(mail.outbox, [])

@@ -10,6 +10,8 @@
     <script src="{% static 'reports/menus.js' %}" defer></script>
 </head>
 <body class="chat-page">
+    {# The header and chat fill the screen; the footer sits below them. #}
+    <div class="chat-viewport">
     {% include "events/_site_header.html" %}
     <main class="chat-shell">
         <header class="chat-header">
@@ -72,6 +74,7 @@
         <p class="chat-status" role="status" aria-live="polite"></p>
         <p class="chat-status chat-connection-status" role="status" aria-live="polite"></p>
     </main>
+    </div>
     {% include "events/_site_footer.html" %}
     <script src="{% static 'events/conversation.js' %}" defer></script>
     {% include "chatbot/widget.html" %}

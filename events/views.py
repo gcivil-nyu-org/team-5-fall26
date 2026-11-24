@@ -47,6 +47,7 @@ from .filters import (
     EventFilterForm,
     filter_events,
     filter_params,
+    nyc_today,
 )
 from .forms import (
     CancelEventForm,
@@ -70,6 +71,7 @@ from .notifications import (
     change_notice,
     interested_recipients,
     notify_interested,
+    notify_attendee_removed,
     notify_registration_change,
     party,
 )
@@ -142,14 +144,15 @@ def get_hosted_upcoming_event(user, pk):
 
 
 def people(count):
-    """Return e.g. "1 interested person" or "3 interested people"."""
-    return f"{count} interested {'person' if count == 1 else 'people'}"
+    """Return e.g. "1 person" or "3 people"."""
+    return f"{count} {'person' if count == 1 else 'people'}"
 
 
 class EventUpdateView(LoginRequiredMixin, UpdateView):
     """Let a host edit their own event until it ends.
 
-    Changing the date, time, or location notifies everyone interested.
+    Changing the date, time, or location notifies everyone interested or
+    registered.
     """
 
     form_class = EventListingForm
@@ -160,7 +163,8 @@ class EventUpdateView(LoginRequiredMixin, UpdateView):
         return get_hosted_upcoming_event(self.request.user, self.kwargs["pk"])
 
     def form_valid(self, form):
-        """Save the changes, notify interested users, and confirm on the page."""
+        """Save the changes, notify interested and registered users, and
+        confirm on the page."""
         notice = change_notice(form.instance, form.initial, form.changed_data)
         response = super().form_valid(form)
         confirmation = "Event updated."
@@ -180,7 +184,8 @@ class EventUpdateView(LoginRequiredMixin, UpdateView):
 @login_required
 @require_POST
 def notify_attendees(request, pk):
-    """Send the host's message to everyone interested in their event."""
+    """Send the host's message to everyone interested in or registered for
+    their event."""
     event = get_hosted_upcoming_event(request.user, pk)
     detail_url = reverse("event_detail", args=[event.pk])
     form = NotifyAttendeesForm(request.POST)
@@ -196,14 +201,17 @@ def notify_attendees(request, pk):
     if count:
         messages.success(request, f"Your message was sent to {people(count)}.")
     else:
-        messages.info(request, "Nobody is interested in this event yet.")
+        messages.info(
+            request, "Nobody is interested in or registered for this event yet."
+        )
     return redirect(detail_url)
 
 
 @login_required
 @require_http_methods(["GET", "POST"])
 def cancel_event(request, pk):
-    """Confirm, then cancel a host's event and tell everyone interested."""
+    """Confirm, then cancel a host's event and tell everyone interested or
+    registered."""
     event = get_hosted_upcoming_event(request.user, pk)
     form = CancelEventForm(request.POST if request.method == "POST" else None)
     if form.is_bound and form.is_valid():
@@ -520,6 +528,44 @@ def register_event(request, pk):
 
 @login_required
 @require_POST
+def remove_attendee(request, pk, registration_id):
+    """Let a host take a guest off the guest list of their upcoming event.
+
+    The guest's registration is deleted and they get a notification and an
+    email saying the host removed them. Only the event's host can do this,
+    and only until the event ends or is cancelled.
+    """
+    event = get_hosted_upcoming_event(request.user, pk)
+    manage_url = reverse("event_manage", args=[event.pk]) + "?tab=attendees"
+    with transaction.atomic():
+        registration = (
+            Registration.objects.select_for_update()
+            .select_related("user")
+            .filter(pk=registration_id, event=event)
+            .first()
+        )
+        if registration is None:
+            messages.info(request, "That guest is no longer registered.")
+            return redirect(manage_url)
+        guest = registration.user
+        registration.delete()
+        notify_attendee_removed(
+            event,
+            guest,
+            event_url=request.build_absolute_uri(
+                reverse("event_detail", args=[event.pk])
+            ),
+        )
+    messages.success(
+        request,
+        f"{guest.get_display_name()} was removed from the guest list "
+        "and has been notified.",
+    )
+    return redirect(manage_url)
+
+
+@login_required
+@require_POST
 def cancel_registration(request, pk):
     """Cancel the current user's registration for an event."""
     event = get_object_or_404(Event, pk=pk)
@@ -664,11 +710,6 @@ class EventDetailView(DetailView):
 
         context["registered_count"] = registrations.count()
 
-        # Only show attendees who have chosen to share their profiles.
-        context["registered_users"] = registrations.filter(
-            user__share_profile_with_attendees=True
-        )
-
         # Check whether the current user has registered.
         current_registration = (
             Registration.objects.filter(
@@ -680,6 +721,9 @@ class EventDetailView(DetailView):
         )
 
         context["user_is_registered"] = current_registration is not None
+        context["user_participates"] = (
+            current_interest is not None or current_registration is not None
+        )
         context["current_registration"] = current_registration
         context["party_size_choices"] = range(1, Registration.MAX_PARTY_SIZE + 1)
 
@@ -765,6 +809,18 @@ class EventDetailView(DetailView):
         ]
 
         context["attendees"] = attendees
+
+        # Registered attendees use the same contact controls as interested users.
+        registered_users = (
+            registrations.filter(user__share_profile_with_attendees=True)
+            .annotate(recipient_banned=Exists(active_bans))
+            .order_by("user__display_name", "user__username")
+        )
+        for registration in registered_users:
+            registration.contact_request = request_by_recipient.get(
+                registration.user_id
+            )
+        context["registered_users"] = registered_users
 
         # Discover only opted-in profiles for active, related events.
         context["can_explore_similar_interests"] = (
@@ -875,7 +931,7 @@ class LandingView(TemplateView):
         """Add the search filters and, when signed in, the personal lists."""
         context = super().get_context_data(**kwargs)
         context["filter_form"] = EventFilterForm()
-        upcoming = Event.objects.filter(status=Event.Status.UPCOMING)
+        upcoming = Event.objects.listed().filter(status=Event.Status.UPCOMING)
         upcoming_order = (
             F("start_time").asc(nulls_last=True),
             "end_time",
@@ -883,6 +939,10 @@ class LandingView(TemplateView):
         )
 
         context["events"] = []
+        # Search lists nothing without a filter, so "all upcoming" starts today.
+        context["all_upcoming_url"] = (
+            reverse("search") + "?" + urlencode({"date_from": nyc_today().isoformat()})
+        )
         context["archived_events"] = []
         context["recommendations"] = []
         context["has_search_history"] = False
@@ -901,7 +961,7 @@ class LandingView(TemplateView):
 
             # Recently completed events, newest first.
             archived = self.with_registration(
-                Event.objects.filter(status=Event.Status.DONE)
+                Event.objects.listed().filter(status=Event.Status.DONE)
             ).order_by(
                 F("start_time").desc(nulls_last=True),
                 "-end_time",
@@ -937,7 +997,7 @@ class EventSearchMixin:
         else:
             self.filter_form = form
 
-        base_queryset = Event.objects.filter(status=self.event_status)
+        base_queryset = Event.objects.listed().filter(status=self.event_status)
 
         events = filter_events(base_queryset, filters)
 
@@ -985,7 +1045,11 @@ class ArchivedEventsView(
     LoginRequiredMixin,
     ListView,
 ):
-    """Display and search completed events in the public archive."""
+    """Display and search completed events in the public archive.
+
+    Searches can be typed in plain language too, such as "yoga yesterday" or
+    "last weekend in Brooklyn"; dates are read as days that have gone by.
+    """
 
     model = Event
     template_name = "events/archived_events.html"
@@ -1004,6 +1068,23 @@ class ArchivedEventsView(
     empty_without_filters = False
     clear_filters_url_name = "archived_events"
     search_action_url_name = "archived_events"
+
+    def get(self, request, *args, **kwargs):
+        """Send a plain-language search to the dates and filters it describes."""
+        target = natural_search_url(request, past=True)
+        if target:
+            return redirect(target)
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        """Explain how a plain-language search was read."""
+        context = super().get_context_data(**kwargs)
+        context["plain_language"] = True
+        asked = " ".join(self.request.GET.get("asked", "").split())
+        if asked:
+            context["asked"] = asked[:MAX_PROMPT_LENGTH]
+            context["understood"] = describe_search(self.query, self.filters)
+        return context
 
 
 class SearchView(EventSearchMixin, ListView):

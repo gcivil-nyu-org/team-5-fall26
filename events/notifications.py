@@ -2,34 +2,32 @@
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mass_mail
+from django.core.mail import send_mail, send_mass_mail
+from django.db.models import Q
 from django.utils import dateformat, timezone
 from django.utils.text import Truncator
 
 from .filters import NYC_TIMEZONE
 from .models import ContactRequest, Notification
 
-# Edits to these fields send interested users an automatic notice.
+# Edits to these fields send interested and registered users an automatic
+# notice.
 NOTIFIED_CHANGES = ("start_time", "end_time", "location")
 # Event titles can be longer than a notification subject allows.
 SUBJECT_MAX_LENGTH = Notification._meta.get_field("subject").max_length
 
 
 def interested_recipients(event):
-    """Return the users interested in an event, other than its host."""
+    """Return who hears about an event's changes, other than its host.
+
+    That is everyone who selected Interested or registered for it; someone
+    who did both is listed once.
+    """
     return (
         get_user_model()
-        .objects.filter(event_interests__event=event)
-        .exclude(pk=event.host_id)
-        .distinct()
-    )
-
-
-def registered_recipients(event):
-    """Return the users registered for an event, other than its host."""
-    return (
-        get_user_model()
-        .objects.filter(event_registrations__event=event)
+        .objects.filter(
+            Q(event_interests__event=event) | Q(event_registrations__event=event)
+        )
         .exclude(pk=event.host_id)
         .distinct()
     )
@@ -112,8 +110,8 @@ def notify_users(recipients, event, subject, body, event_url=None):
     return len(recipients)
 
 
-def notify_interested(event, subject, body, event_url):
-    """Send a message to everyone interested in an event.
+def notify_interested(event, subject, body, event_url=None):
+    """Send a message to everyone interested in or registered for an event.
 
     Returns:
         int: how many people were notified.
@@ -123,15 +121,37 @@ def notify_interested(event, subject, body, event_url):
     )
 
 
-def notify_registered(event, subject, body, event_url=None):
-    """Send a message to everyone registered for an event.
+def notify_attendee_removed(event, guest, event_url):
+    """Tell a guest that the host took them off their event's guest list.
+
+    The guest gets an in-app notification and an email.
+
+    Args:
+        event: the event the guest was registered for.
+        guest: the user whose registration the host removed.
+        event_url: a full link to the event, for the email.
 
     Returns:
-        int: how many people were notified.
+        Notification: the guest's in-app notification.
     """
-    return notify_users(
-        registered_recipients(event), event, subject, body, event_url=event_url
+    host = event.host.get_display_name()
+    subject = Truncator(f"Removed from {event.title}").chars(SUBJECT_MAX_LENGTH)
+    body = (
+        f"{host} removed you from the guest list for {event.title} "
+        f"({describe_when(event.start_time, event.end_time)}). "
+        "You are no longer registered for this event."
     )
+    notification = Notification.objects.create(
+        recipient=guest, event=event, subject=subject, body=body
+    )
+    if guest.email:
+        send_mail(
+            subject,
+            f"{body}\n\nEvent details: {event_url}",
+            settings.DEFAULT_FROM_EMAIL,
+            [guest.email],
+        )
+    return notification
 
 
 def notify_contact_request(contact_request):

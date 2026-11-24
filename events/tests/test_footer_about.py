@@ -72,7 +72,6 @@ class SiteFooterTests(TestCase):
 
         for href in (
             reverse("landing"),
-            reverse("search"),
             reverse("search") + "?when=weekend",
             reverse("archived_events"),
             reverse("login"),
@@ -83,6 +82,8 @@ class SiteFooterTests(TestCase):
                 self.assertContains(response, f'<a href="{href}">')
         self.assertNotContains(response, f'<a href="{reverse("my_events")}">')
         self.assertNotContains(response, f'<a href="{reverse("account_settings")}">')
+        # The footer no longer has a separate Search events link (#185).
+        self.assertNotContains(response, f'<a href="{reverse("search")}">')
 
     def test_signed_in_footer_lists_account_pages(self):
         """Members get links to their account pages instead of Log in."""

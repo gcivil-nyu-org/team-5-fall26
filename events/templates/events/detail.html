@@ -136,6 +136,7 @@
     }
 
     .detail-description {
+        margin: 0.75rem 0;
         white-space: pre-line;
         line-height: 1.7;
     }
@@ -639,7 +640,6 @@
 <body>
     {% include "events/_site_header.html" %}
 <div class="detail-page">
-    <p class="detail-back"><a href="{% url 'search' %}">Search events</a></p>
 <div class="detail-layout">
 
     <main class="detail-card">
@@ -715,13 +715,8 @@
         {% endif %}
 
         <h2>Description</h2>
-        <div class="detail-description">
-            {% if event.description %}
-                {{ event.description }}
-            {% else %}
-                No description is available for this event.
-            {% endif %}
-        </div>
+        {# No whitespace inside: pre-line would show template line breaks as a gap. #}
+        <div class="detail-description">{% if event.description %}{{ event.description }}{% else %}No description is available for this event.{% endif %}</div>
 
     </main>
 
@@ -859,7 +854,7 @@
 
     {% if can_manage %}
         <section class="community-section">
-            <h2>Message interested attendees</h2>
+            <h2>Message attendees</h2>
 
             <p>
                 {% if recipient_count %}
@@ -867,8 +862,9 @@
                     {% if recipient_count == 1 %}person{% else %}people{% endif %}
                     by email and in their notifications.
                 {% else %}
-                    Nobody is interested in this event yet. People who select
-                    "Interested" will get your messages.
+                    Nobody is interested in or registered for this event yet.
+                    People who register or select "Interested" will get your
+                    messages.
                 {% endif %}
             </p>
 
@@ -913,7 +909,7 @@
     <section class="community-section">
         <h2>Connect with Other Attendees</h2>
         <p>
-            See who's interested in this event and connect with other attendees.
+            See who's interested in or registered for this event and connect with them.
         </p>
         <p>
             Attendees who share their profiles can be explored below.
@@ -969,7 +965,7 @@
                         >
                             {% if attendee.user.profile_photo %}
                                 <img
-                                    src="{{ attendee.user.profile_photo.url }}"
+                                    src="{{ attendee.user.displayed_profile_photo.url }}"
                                     alt=""
                                 >
                             {% else %}
@@ -1050,7 +1046,7 @@
                         >
                             {% if attendee.user.profile_photo %}
                                 <img
-                                    src="{{ attendee.user.profile_photo.url }}"
+                                    src="{{ attendee.user.displayed_profile_photo.url }}"
                                     alt=""
                                 >
                             {% else %}
@@ -1084,6 +1080,8 @@
                             {% endif %}
 
                             <div class="attendee-card-actions">
+                                {% include "events/_contact_request_action.html" %}
+
                                 <a
                                     class="attendee-details-link"
                                     href="{% url 'public_profile' username=attendee.user.username %}"

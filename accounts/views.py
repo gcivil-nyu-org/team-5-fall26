@@ -1,6 +1,7 @@
 """Views for user account pages."""
 
 import time
+from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, logout
@@ -9,17 +10,20 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import redirect, render, resolve_url
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.generic import CreateView, DetailView, FormView, UpdateView
 
+from events.contact_services import shared_upcoming_events
 from events.models import ContactRequest, Event, EventInterest
-from events.notifications import cancel_notice, notify_registered
+from events.notifications import cancel_notice, notify_interested
 from events.ratings import host_rating_summary, latest_host_comments
 from events.similar_interests import public_match_for_event
 from events.photos import gallery_context
@@ -72,13 +76,14 @@ class DeleteAccountView(LoginRequiredMixin, FormView):
         return context
 
     def form_valid(self, form):
-        """Notify registrants, log out, remove the photo, and delete the account."""
+        """Notify guests, remove the photo, delete the account, then log out."""
         user = self.request.user
-        self._notify_registered_guests(user)
-        if user.profile_photo:
-            user.profile_photo.delete(save=False)
+        with transaction.atomic():
+            self._notify_open_event_guests(user)
+            if user.profile_photo:
+                user.profile_photo.delete(save=False)
+            user.delete()
         logout(self.request)
-        user.delete()
         # Set the notice after logout so it lands in the new anonymous session.
         messages.success(
             self.request,
@@ -86,9 +91,17 @@ class DeleteAccountView(LoginRequiredMixin, FormView):
         )
         return redirect(self.get_success_url())
 
-    def _notify_registered_guests(self, user):
-        """Tell registrants that each hosted event is cancelled before it is removed."""
-        hosted_events = user.hosted_events.exclude(status=Event.Status.CANCELLED)
+    def _notify_open_event_guests(self, user):
+        """Cancel-notice guests on open hosted events before those events go away.
+
+        Matches normal cancel: Interested and registered users are told.
+        Past or already-finished events do not get a cancel notice.
+        """
+        hosted_events = [
+            event
+            for event in user.hosted_events.filter(status=Event.Status.UPCOMING)
+            if event.is_open
+        ]
         for event in hosted_events:
             subject, body = cancel_notice(event)
             body = (
@@ -96,7 +109,7 @@ class DeleteAccountView(LoginRequiredMixin, FormView):
                 "This event listing will be removed because the host "
                 "deleted their account."
             )
-            notify_registered(event, subject, body)
+            notify_interested(event, subject, body)
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -180,14 +193,9 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
             has_pending_request = pair_requests.filter(
                 status=ContactRequest.Status.PENDING
             ).exists()
-            has_shared_upcoming_event = (
-                Event.objects.filter(
-                    status=Event.Status.UPCOMING,
-                    interests__user=self.request.user,
-                )
-                .filter(interests__user=profile_user)
-                .exists()
-            )
+            has_shared_upcoming_event = shared_upcoming_events(
+                self.request.user, profile_user
+            ).exists()
             # Banned recipients cannot receive new invitations, but an
             # already-approved conversation should remain reachable.
             context["can_message"] = has_accepted_request or (
@@ -242,18 +250,32 @@ class RegisterView(SuccessMessageMixin, CreateView):
     template_name = "accounts/register.html"
     success_message = "Welcome, %(name)s! Your account has been created. Please log in."
 
+    def get_return_url(self):
+        """Keep a safe same-site return destination across account creation."""
+        target = self.request.POST.get("next", self.request.GET.get("next", "")).strip()
+        if url_has_allowed_host_and_scheme(
+            target,
+            allowed_hosts={self.request.get_host()},
+            require_https=self.request.is_secure(),
+        ):
+            return target
+        return ""
+
     def get_context_data(self, **kwargs):
-        """
-        Pass login page URL to template for "Already have an account?" link.
-        """
+        """Preserve the return destination in the signup form and login link."""
         context = super().get_context_data(**kwargs)
-        context["login_url"] = resolve_url(settings.LOGIN_URL)
+        context["next"] = self.get_return_url()
+        context["login_url"] = self.get_success_url()
         context["google_oauth_enabled"] = settings.GOOGLE_OAUTH_ENABLED
         return context
 
     def get_success_url(self):
-        """Return the login page URL."""
-        return resolve_url(settings.LOGIN_URL)
+        """Return to login with the original safe destination, if supplied."""
+        login_url = resolve_url(settings.LOGIN_URL)
+        target = self.get_return_url()
+        if target:
+            return f"{login_url}?{urlencode({'next': target})}"
+        return login_url
 
     def get_success_message(self, cleaned_data):
         """Greet the new user by display name, or by username if they left it blank."""
