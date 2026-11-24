@@ -231,9 +231,7 @@ class Toolbox:
             if Registration.objects.filter(event=event, user=self.user).exists():
                 details["my_attendance"] = "Registered"
             else:
-                details["my_attendance"] = (
-                    mine.get_status_display() if mine else "none"
-                )
+                details["my_attendance"] = mine.get_status_display() if mine else "none"
             details["i_am_the_host"] = event.host_id == self.user.pk
         return details
 
