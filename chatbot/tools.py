@@ -8,12 +8,12 @@ counts (never attendee identities), and the signed-in user's own activity.
 import logging
 from datetime import date
 
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.urls import reverse
 from django.utils.text import Truncator
 
 from events.filters import BOROUGHS, CATEGORY_GROUPS, filter_events, nyc_today
-from events.models import DirectMessage, Event, EventInterest
+from events.models import DirectMessage, Event, EventInterest, Registration
 from events.notifications import describe_when
 from events.search import search_events
 
@@ -81,8 +81,8 @@ DECLARATIONS = [
         "name": "get_my_activity",
         "description": (
             "Get the signed-in visitor's own activity and bookings: their "
-            "next event, events they are interested in"
-            "(their bookings), events they host, unread "
+            "next event, events they registered for or marked Interested, "
+            "events they host, unread "
             "notifications and messages, pending contact requests, and their "
             "privacy settings."
         ),
@@ -228,7 +228,12 @@ class Toolbox:
         )
         if self.user.is_authenticated:
             mine = interests.filter(user=self.user).first()
-            details["my_attendance"] = mine.get_status_display() if mine else "none"
+            if Registration.objects.filter(event=event, user=self.user).exists():
+                details["my_attendance"] = "Registered"
+            else:
+                details["my_attendance"] = (
+                    mine.get_status_display() if mine else "none"
+                )
             details["i_am_the_host"] = event.host_id == self.user.pk
         return details
 
@@ -241,10 +246,18 @@ class Toolbox:
                 "sign_in_page": reverse("login"),
                 "sign_up_page": reverse("register"),
             }
-        interests = (
-            user.event_interests.filter(event__status=Event.Status.UPCOMING)
-            .select_related("event")
-            .order_by(F("event__start_time").asc(nulls_last=True))
+        registrations = Registration.objects.filter(user=user)
+        interests = EventInterest.objects.filter(user=user)
+        upcoming = (
+            Event.objects.filter(status=Event.Status.UPCOMING)
+            .filter(
+                Q(pk__in=interests.values("event_id"))
+                | Q(pk__in=registrations.values("event_id"))
+            )
+            .annotate(
+                is_registered=Exists(registrations.filter(event_id=OuterRef("pk")))
+            )
+            .order_by(F("start_time").asc(nulls_last=True), "pk")
         )
         hosted = user.hosted_events.order_by(F("start_time").asc(nulls_last=True))
         unread_messages = (
@@ -255,11 +268,18 @@ class Toolbox:
             .exclude(sender=user)
             .count()
         )
-        planned = [
-            dict(event_summary(i.event), attendance=i.get_status_display())
-            for i in interests[:MAX_SEARCH_RESULTS]
-            if i.event.is_open
-        ]
+        planned = []
+        for event in upcoming.iterator(chunk_size=200):
+            if not event.is_open:
+                continue
+            planned.append(
+                dict(
+                    event_summary(event),
+                    attendance="Registered" if event.is_registered else "Interested",
+                )
+            )
+            if len(planned) == MAX_SEARCH_RESULTS:
+                break
         return {
             "name": user.get_display_name(),
             "username": user.username,
