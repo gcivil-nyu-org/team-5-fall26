@@ -3,6 +3,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -157,21 +158,7 @@ def create_event_reply(request, post_id):
             reply.author = request.user
             reply.save()
 
-            # Notify the original post author, but never notify yourself.
-            if post.author_id != request.user.pk:
-                subject = f"New reply to your comment on {post.event.title}"
-
-                Notification.objects.create(
-                    recipient=post.author,
-                    event=post.event,
-                    subject=subject[
-                        : Notification._meta.get_field("subject").max_length
-                    ],
-                    body=(
-                        f"{request.user.get_display_name()} replied to "
-                        f"your comment on '{post.event.title}'."
-                    ),
-                )
+            notify_thread_participants(post, request.user)
 
         messages.success(request, "Reply posted.")
     else:
@@ -181,6 +168,43 @@ def create_event_reply(request, post_id):
         )
 
     return redirect(event_detail_url(post.event_id))
+
+
+def notify_thread_participants(post, replier):
+    """Notify the comment's author and earlier repliers about a new reply."""
+    replier_ids = (
+        post.replies.exclude(author=replier)
+        .values_list("author_id", flat=True)
+        .distinct()
+    )
+    recipients = User.objects.filter(
+        Q(pk=post.author_id) | Q(pk__in=replier_ids)
+    ).exclude(pk=replier.pk)
+    max_subject = Notification._meta.get_field("subject").max_length
+
+    notifications = []
+    for recipient in recipients:
+        if recipient.pk == post.author_id:
+            subject = f"New reply to your comment on {post.event.title}"
+            body = (
+                f"{replier.get_display_name()} replied to "
+                f"your comment on '{post.event.title}'."
+            )
+        else:
+            subject = f"New reply in a discussion on {post.event.title}"
+            body = (
+                f"{replier.get_display_name()} replied to a comment "
+                f"you replied to on '{post.event.title}'."
+            )
+        notifications.append(
+            Notification(
+                recipient=recipient,
+                event=post.event,
+                subject=subject[:max_subject],
+                body=body,
+            )
+        )
+    Notification.objects.bulk_create(notifications)
 
 
 @login_required

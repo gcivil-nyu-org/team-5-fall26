@@ -74,13 +74,49 @@ class NotificationIntegrationTests(NotifyTestCase):
 
     def test_reply_notification_failure_rolls_back_reply(self):
         with patch(
-            "events.community_views.Notification.objects.create",
+            "events.community_views.Notification.objects.bulk_create",
             side_effect=RuntimeError("reply alert failure"),
         ):
             with self.assertRaisesMessage(RuntimeError, "reply alert failure"):
                 self.client.post(self.reply_url, {"body": "Bring water."})
         self.assertFalse(EventReply.objects.exists())
         self.assertFalse(Notification.objects.exists())
+
+    def test_reply_notifies_everyone_already_in_the_thread(self):
+        """#208: A comments, B replies, A replies back: B hears about it."""
+        EventReply.objects.create(post=self.post, author=self.host, body="Water.")
+        EventReply.objects.create(
+            post=self.post, author=self.second_fan, body="And a hat."
+        )
+        EventReply.objects.create(post=self.post, author=self.host, body="Yes.")
+        self.client.force_login(self.fan)
+        self.assertRedirects(
+            self.client.post(self.reply_url, {"body": "Thanks both!"}),
+            self.detail_url,
+        )
+        alerts = Notification.objects.order_by("recipient_id")
+        self.assertEqual(
+            sorted(alert.recipient_id for alert in alerts),
+            sorted([self.host.pk, self.second_fan.pk]),
+        )
+        for alert in alerts:
+            self.assertIn("New reply in a discussion", alert.subject)
+            self.assertIn("replied to a comment you replied to", alert.body)
+            self.assertEqual(alert.event, self.event)
+
+    def test_comment_author_and_earlier_repliers_each_get_one_alert(self):
+        EventReply.objects.create(
+            post=self.post, author=self.second_fan, body="Sunscreen."
+        )
+        self.client.post(self.reply_url, {"body": "Bring water."})
+        by_recipient = {
+            alert.recipient_id: alert for alert in Notification.objects.all()
+        }
+        self.assertEqual(set(by_recipient), {self.fan.pk, self.second_fan.pk})
+        self.assertIn("New reply to your comment", by_recipient[self.fan.pk].subject)
+        self.assertIn(
+            "New reply in a discussion", by_recipient[self.second_fan.pk].subject
+        )
 
     def test_reply_for_long_event_title_fits_notification_subject(self):
         self.event.title = "A" * 300
