@@ -167,36 +167,40 @@ class ActionToastTests(ToastTestCase):
             "error",
         )
 
-    def test_post_and_reply_on_closed_event(self):
-        """Closed events refuse posts and replies with a next step."""
-        response = self.post(reverse("create_event_post", args=[self.closed.pk]))
-        self.assertToast(
-            response,
-            "no longer takes new activity",
-            "error",
+    def test_post_and_reply_on_cancelled_event(self):
+        """Cancelled events refuse posts and replies."""
+        cancelled = Event.objects.create(
+            guid="toast-cancelled",
+            title="Cancelled walk",
+            content_hash="t" * 64,
+            start_time=datetime(2099, 5, 1, 9, 0, tzinfo=NYC),
+            status=Event.Status.CANCELLED,
         )
-        self.assertToast(
-            response,
-            "Browse upcoming events instead.",
-            "error",
-        )
+        response = self.post(reverse("create_event_post", args=[cancelled.pk]))
+        self.assertToast(response, "new comments are closed", "error")
 
         post = EventPost.objects.create(
-            event=self.closed,
+            event=cancelled,
             author=self.member,
             body="Earlier",
         )
         response = self.post(reverse("create_event_reply", args=[post.pk]))
-        self.assertToast(
-            response,
-            "no longer takes new activity",
-            "error",
+        self.assertToast(response, "new comments are closed", "error")
+
+    def test_post_and_reply_on_completed_event(self):
+        """Completed events still take comments and replies."""
+        response = self.post(
+            reverse("create_event_post", args=[self.closed.pk]),
+            {"body": "Great walk!"},
         )
-        self.assertToast(
-            response,
-            "Browse upcoming events instead.",
-            "error",
+        self.assertToast(response, "Comment posted.")
+
+        post = EventPost.objects.get(event=self.closed)
+        response = self.post(
+            reverse("create_event_reply", args=[post.pk]),
+            {"body": "Agreed!"},
         )
+        self.assertToast(response, "Reply posted.")
 
     def test_contact_request_flow(self):
         """Sending, repeating and answering a contact request all confirm."""

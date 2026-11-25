@@ -61,11 +61,11 @@ class NotificationIntegrationTests(NotifyTestCase):
         self.assertContains(self.client.get(reverse("landing")), "1 new")
         self.assertEqual(mail.outbox, [])
 
-    def test_self_invalid_and_closed_event_replies_do_not_notify(self):
+    def test_self_invalid_and_cancelled_event_replies_do_not_notify(self):
         self.client.force_login(self.fan)
         self.client.post(self.reply_url, {"body": "My own follow-up"})
         self.client.post(self.reply_url, {"body": "   "})
-        self.event.status = Event.Status.DONE
+        self.event.status = Event.Status.CANCELLED
         self.event.save()
         self.client.force_login(self.host)
         self.client.post(self.reply_url, {"body": "Too late"})

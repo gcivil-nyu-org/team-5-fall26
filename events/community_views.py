@@ -29,6 +29,8 @@ CLOSED_EVENT = (
     "This event no longer takes new activity. " "Browse upcoming events instead."
 )
 
+CANCELLED_DISCUSSION = "This event was cancelled, so new comments are closed."
+
 INVALID_ACTION = "That action isn't available. Please try again."
 
 
@@ -111,11 +113,15 @@ def toggle_event_interest(request, event_id):
 @login_required
 @require_POST
 def create_event_post(request, event_id):
-    """Create a discussion post only while the event is still open."""
-    event = get_open_event(event_id)
+    """Create a discussion post on any event that wasn't cancelled.
 
-    if event is None:
-        messages.error(request, CLOSED_EVENT)
+    Discussion stays open after an event ends, so attendees can talk about
+    how it went.
+    """
+    event = get_object_or_404(Event, pk=event_id)
+
+    if event.is_cancelled:
+        messages.error(request, CANCELLED_DISCUSSION)
         return redirect(event_detail_url(event_id))
 
     form = EventPostForm(request.POST)
@@ -138,14 +144,14 @@ def create_event_post(request, event_id):
 @login_required
 @require_POST
 def create_event_reply(request, post_id):
-    """Reply to a post only while its event is still open."""
+    """Reply to a post on any event that wasn't cancelled."""
     post = get_object_or_404(
         EventPost.objects.select_related("event", "author"),
         pk=post_id,
     )
 
-    if not post.event.is_open or post.event.is_cancelled:
-        messages.error(request, CLOSED_EVENT)
+    if post.event.is_cancelled:
+        messages.error(request, CANCELLED_DISCUSSION)
         return redirect(event_detail_url(post.event_id))
 
     form = EventReplyForm(request.POST)
