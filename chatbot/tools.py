@@ -268,7 +268,8 @@ class Toolbox:
         )
         planned = []
         for event in upcoming.iterator(chunk_size=200):
-            if not event.is_open:
+            # Feed cancellations appear in titles while status stays upcoming.
+            if not event.is_open or event.is_cancelled:
                 continue
             planned.append(
                 dict(
