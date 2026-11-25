@@ -12,6 +12,7 @@ from events.models import (
     Event,
     EventInterest,
     Notification,
+    Registration,
 )
 
 
@@ -99,6 +100,18 @@ class EventDetailsToolTests(TestCase):
         self.assertEqual(details["my_attendance"], "none")
         self.assertTrue(details["i_am_the_host"])
 
+    def test_registered_only_and_both_statuses(self):
+        attendee = make_user("registered_attendee")
+        Registration.objects.create(event=self.event, user=attendee)
+
+        details = Toolbox(attendee).get_event_details(self.event.pk)
+        self.assertEqual(details["my_attendance"], "Registered")
+        self.assertEqual(details["interested_count"], 2)
+
+        EventInterest.objects.create(event=self.event, user=attendee)
+        details = Toolbox(attendee).get_event_details(self.event.pk)
+        self.assertEqual(details["my_attendance"], "Registered")
+
     def test_unknown_events(self):
         toolbox = Toolbox(AnonymousUser())
         self.assertIn("error", toolbox.get_event_details(999999))
@@ -112,6 +125,63 @@ class MyActivityToolTests(TestCase):
     def test_no_next_event(self):
         result = Toolbox(make_user("idle")).get_my_activity()
         self.assertIsNone(result["next_event"])
+
+    def test_registered_and_interested_plans_are_combined_in_date_order(self):
+        user = make_user("mixed_attendance")
+        other = make_user("another_attendee")
+        registered = make_event("registered-plan", "Registered Picnic", days=2)
+        interested = make_event("interested-plan", "Interested Yoga", days=4)
+        both = make_event("both-plan", "Both Walk", days=6)
+        unrelated = make_event("other-plan", "Other Person's Event", days=1)
+        past = make_event("past-plan", "Ended Concert", days=-2)
+
+        Registration.objects.create(event=registered, user=user)
+        EventInterest.objects.create(event=interested, user=user)
+        Registration.objects.create(event=both, user=user)
+        EventInterest.objects.create(event=both, user=user)
+        Registration.objects.create(event=unrelated, user=other)
+        Registration.objects.create(event=past, user=user)
+
+        result = Toolbox(user).get_my_activity()
+        self.assertEqual(
+            [event["title"] for event in result["planned_events"]],
+            ["Registered Picnic", "Interested Yoga", "Both Walk"],
+        )
+        self.assertEqual(
+            [event["attendance"] for event in result["planned_events"]],
+            ["Registered", "Interested", "Registered"],
+        )
+        self.assertEqual(result["next_event"]["title"], "Registered Picnic")
+
+    def test_ended_plans_do_not_hide_upcoming_plans_at_the_limit(self):
+        user = make_user("many_old_plans")
+        for n in range(11):
+            old = make_event(f"old-{n}", f"Old Event {n}", days=-2)
+            Registration.objects.create(event=old, user=user)
+        future = make_event("future-plan", "Future Walk", days=3)
+        Registration.objects.create(event=future, user=user)
+
+        result = Toolbox(user).get_my_activity()
+        self.assertEqual(
+            [event["title"] for event in result["planned_events"]],
+            ["Future Walk"],
+        )
+        self.assertEqual(result["next_event"]["attendance"], "Registered")
+
+    def test_feed_cancelled_registrations_are_not_the_next_event(self):
+        user = make_user("feed_cancellation")
+        for n, title in enumerate(("CANCELLED: Park Run", "CANCELED - Bird Walk")):
+            cancelled = make_event(f"feed-cancel-{n}", title, days=1 + n)
+            Registration.objects.create(event=cancelled, user=user)
+        active = make_event("feed-active", "Lake Paddle", days=5)
+        Registration.objects.create(event=active, user=user)
+
+        result = Toolbox(user).get_my_activity()
+        self.assertEqual(result["next_event"]["title"], "Lake Paddle")
+        self.assertEqual(
+            [event["title"] for event in result["planned_events"]],
+            ["Lake Paddle"],
+        )
 
     def test_anonymous_visitors_are_asked_to_sign_in(self):
         result = Toolbox(AnonymousUser()).get_my_activity()
