@@ -267,6 +267,36 @@ class RegistrationForm(UserCreationForm):
         return email
 
 
+class DeleteAccountForm(forms.Form):
+    """Confirm account deletion by retyping the account email address."""
+
+    email = forms.EmailField(
+        label="Email address",
+        widget=forms.EmailInput(
+            attrs={
+                "autocomplete": "email",
+                "autocapitalize": "none",
+                "spellcheck": "false",
+            }
+        ),
+        help_text="Type the email address on this account to confirm deletion.",
+    )
+
+    def __init__(self, user, *args, **kwargs):
+        """Bind the form to the signed-in account being deleted."""
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_email(self):
+        """Accept only the signed-in user's email, ignoring letter case."""
+        email = self.cleaned_data["email"].strip().lower()
+        if email != self.user.email.lower():
+            raise forms.ValidationError(
+                "Enter the email address for this account to confirm deletion."
+            )
+        return email
+
+
 class LoginForm(AuthenticationForm):
     """Authenticate users with a username or email address."""
 

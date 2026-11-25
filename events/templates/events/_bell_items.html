@@ -5,7 +5,7 @@
         {# Open the full message on the Notifications page, not the event (#182). #}
         <a href="{% url 'notifications' %}#notification-{{ notification.pk }}">
             <span class="bell-subject">{{ notification.subject }}</span>
-            <span class="bell-meta">{{ notification.event.title }} &middot; {% timezone "America/New_York" %}{{ notification.created_at|date:"M j, g:i A" }}{% endtimezone %}</span>
+            <span class="bell-meta">{% if notification.event %}{{ notification.event.title }} &middot; {% endif %}{% timezone "America/New_York" %}{{ notification.created_at|date:"M j, g:i A" }}{% endtimezone %}</span>
         </a>
     </li>
     {% endfor %}

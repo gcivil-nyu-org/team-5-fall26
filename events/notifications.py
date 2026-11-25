@@ -83,22 +83,24 @@ def notify_registration_change(
     )
 
 
-def notify_interested(event, subject, body, event_url):
-    """Send a message to everyone interested in or registered for an event.
+def notify_users(recipients, event, subject, body, event_url=None):
+    """Send an in-app notification and email to each recipient.
 
-    Each recipient gets an in-app notification and their own email, so no
-    one sees anyone else's address.
+    Each person gets their own email, so no one sees anyone else's address.
+    ``event_url`` is optional when the event listing will no longer exist.
 
     Returns:
         int: how many people were notified.
     """
-    recipients = list(interested_recipients(event))
+    recipients = list(recipients)
+    if not recipients:
+        return 0
     subject = Truncator(subject).chars(SUBJECT_MAX_LENGTH)
     Notification.objects.bulk_create(
         Notification(recipient=user, event=event, subject=subject, body=body)
         for user in recipients
     )
-    email_body = f"{body}\n\nEvent details: {event_url}"
+    email_body = f"{body}\n\nEvent details: {event_url}" if event_url else body
     send_mass_mail(
         [
             (subject, email_body, settings.DEFAULT_FROM_EMAIL, [user.email])
@@ -106,6 +108,17 @@ def notify_interested(event, subject, body, event_url):
         ]
     )
     return len(recipients)
+
+
+def notify_interested(event, subject, body, event_url=None):
+    """Send a message to everyone interested in or registered for an event.
+
+    Returns:
+        int: how many people were notified.
+    """
+    return notify_users(
+        interested_recipients(event), event, subject, body, event_url=event_url
+    )
 
 
 def notify_attendee_removed(event, guest, event_url):

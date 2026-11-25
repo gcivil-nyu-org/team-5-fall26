@@ -33,6 +33,8 @@ class BanMiddleware(MiddlewareMixin):
 
     # POST endpoints that only mark the member's own items read.
     read_routes = frozenset({"notification_bell"})
+    # Self-service account closure remains available during a ban.
+    account_closure_routes = frozenset({"delete_account"})
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         if request.method in self.safe_methods or not request.user.is_authenticated:
@@ -48,6 +50,8 @@ class BanMiddleware(MiddlewareMixin):
         if request.method == "POST" and route == "toggle_event_interest":
             return None
         if request.method == "POST" and route in self.read_routes:
+            return None
+        if request.method == "POST" and route in self.account_closure_routes:
             return None
         return banned_response(request)
 

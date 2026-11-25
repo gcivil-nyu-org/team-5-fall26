@@ -232,6 +232,20 @@
     text-align: center;
   }
 
+  .delete-account-section {
+    border-color: #f1c4c4;
+  }
+
+  .delete-account-section .button.danger {
+    color: #fff;
+    background: #cf222e;
+    border-color: #a40e26;
+  }
+
+  .delete-account-section .button.danger:hover {
+    background: #a40e26;
+  }
+
   @media (max-width: 480px) {
     .settings-page-body main.settings-main {
       width: calc(100% - 20px);
@@ -489,6 +503,8 @@
     </div>
   </form>
   {% endif %}
+
+  {% include "accounts/_delete_account_section.html" %}
 </div>
 
 {% if not active_ban %}
