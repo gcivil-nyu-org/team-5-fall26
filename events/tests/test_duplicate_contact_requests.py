@@ -5,7 +5,13 @@ from django.urls import reverse
 
 from accounts.models import ContactPermission, User
 from events.contact_services import create_contact_request
-from events.models import ContactRequest, Event, EventInterest, Notification
+from events.models import (
+    ContactRequest,
+    Conversation,
+    Event,
+    EventInterest,
+    Notification,
+)
 
 
 class DuplicateContactRequestTests(TestCase):
@@ -89,44 +95,53 @@ class DuplicateContactRequestTests(TestCase):
         self.assertFalse(created)
         self.assertEqual(duplicate.pk, first.pk)
 
-    def test_event_page_reuses_request_from_a_different_event(self):
-        """Do not show a second request form after the first invitation."""
+    def test_message_page_reuses_request_from_a_different_event(self):
+        """Do not offer a second request after the first invitation (#191)."""
         self.client.force_login(self.sender)
         first_url = reverse(
             "send_contact_request", args=[self.first.pk, self.recipient.pk]
         )
         self.client.post(first_url, {"message": "Hi"})
-        page = self.client.get(reverse("event_detail", args=[self.second.pk]))
-        self.assertContains(page, "Your contact request about First Event")
+        page = self.client.get(reverse("message_user", args=[self.recipient.pk]))
+        self.assertContains(page, "Your contact request for")
+        self.assertContains(page, "First Event")
+        self.assertNotContains(page, "Send Contact Request")
+        event_page = self.client.get(reverse("event_detail", args=[self.second.pk]))
         self.assertNotContains(
-            page,
+            event_page,
             reverse("send_contact_request", args=[self.second.pk, self.recipient.pk]),
         )
         self.assertEqual(ContactRequest.objects.count(), 1)
 
-    def test_event_page_handles_reverse_pending_request(self):
+    def test_message_page_handles_reverse_pending_request(self):
         """The recipient sees their invitation and can respond to it."""
         create_contact_request(self.first, self.sender, self.recipient, "Hi")
         self.client.force_login(self.recipient)
-        page = self.client.get(reverse("event_detail", args=[self.second.pk]))
+        page = self.client.get(reverse("message_user", args=[self.sender.pk]))
         self.assertContains(page, "sent you a contact request")
         self.assertContains(page, reverse("notifications"))
+        event_page = self.client.get(reverse("event_detail", args=[self.second.pk]))
         self.assertNotContains(
-            page,
+            event_page,
             reverse("send_contact_request", args=[self.second.pk, self.sender.pk]),
         )
 
-    def test_event_page_shows_message_action_for_accepted_contact(self):
-        """An existing accepted request offers messaging instead of a new form."""
+    def test_accepted_contact_opens_the_conversation(self):
+        """An accepted contact goes straight to messaging, not a new form."""
         self.recipient.contact_permission = ContactPermission.OPEN
         self.recipient.save(update_fields=["contact_permission"])
         create_contact_request(self.first, self.sender, self.recipient, "Hi")
         self.client.force_login(self.sender)
-        page = self.client.get(reverse("event_detail", args=[self.second.pk]))
-        self.assertContains(page, "Contact request accepted.")
-        self.assertContains(page, "Open messages")
+        response = self.client.get(reverse("message_user", args=[self.recipient.pk]))
+        conversation = Conversation.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("conversation", args=[conversation.pk]),
+            fetch_redirect_response=False,
+        )
+        event_page = self.client.get(reverse("event_detail", args=[self.second.pk]))
         self.assertNotContains(
-            page,
+            event_page,
             reverse("send_contact_request", args=[self.second.pk, self.recipient.pk]),
         )
 

@@ -120,6 +120,15 @@
             background: #1c6544;
         }
 
+        .profile-message-form {
+            margin: 0;
+        }
+
+        button.profile-button {
+            font-family: inherit;
+            cursor: pointer;
+        }
+
         /* Profile summary */
         .profile-summary {
             display: flex;
@@ -387,7 +396,17 @@
                     {% endif %}
                 {% elif request.user.is_authenticated %}
                     {% if can_message and not viewer_banned %}
+                        {% if has_accepted_contact %}
                         <a class="profile-button" href="{% url 'message_user' profile_user.pk %}">Send Message</a>
+                        {% elif direct_contact %}
+                        <form class="profile-message-form" method="post" action="{% url 'message_user' profile_user.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="direct" value="1">
+                            <button class="profile-button" type="submit">Send Message</button>
+                        </form>
+                        {% else %}
+                        <a class="profile-button" href="{% url 'message_user' profile_user.pk %}">Request Message</a>
+                        {% endif %}
                     {% endif %}
                     {% if not viewer_banned %}{% url 'profile_report' profile_user.username as report_url %}
                     {% include 'reports/_report_menu.html' with report_url=report_url menu_label="Profile actions" report_label="Report profile" only %}

@@ -231,22 +231,22 @@ class NotificationIntegrationTests(NotifyTestCase):
             EventInterest.Status.INTERESTED,
         )
 
-    def test_cards_hide_request_form_for_nonparticipants_and_closed_events(self):
-        self.client.force_login(self.bystander)
-        response = self.client.get(self.detail_url)
-        self.assertNotContains(response, f'action="{self.contact_url}"')
-        self.assertContains(response, "Interested")
-        self.client.force_login(self.host)
+    def test_cards_never_show_a_request_form(self):
+        """Attendee cards only link to profiles, for every viewer (#191)."""
         self.host.share_profile_with_attendees = True
         self.host.save()
-        self.assertContains(self.client.get(self.detail_url), "This is your profile.")
-        self.event.status = Event.Status.DONE
-        self.event.save()
-        response = self.client.get(self.detail_url)
-        self.assertNotContains(response, f'action="{self.contact_url}"')
-        self.assertContains(response, "New contact requests are closed")
+        for viewer in (self.bystander, self.host, self.fan, None):
+            with self.subTest(viewer=viewer):
+                if viewer is None:
+                    self.client.logout()
+                else:
+                    self.client.force_login(viewer)
+                response = self.client.get(self.detail_url)
+                self.assertNotContains(response, "/contact/")
+                self.assertNotContains(response, "Send Contact Request")
+                self.assertNotContains(response, "Log in to Contact")
 
-    def test_declined_card_allows_new_request_and_anonymous_card_requires_login(self):
+    def test_declined_request_can_be_sent_again_from_the_profile(self):
         self.client.post(self.contact_url)
         contact_request = ContactRequest.objects.get()
         self.client.force_login(self.fan)
@@ -254,10 +254,5 @@ class NotificationIntegrationTests(NotifyTestCase):
             reverse("respond_to_contact_request", args=[contact_request.pk, "decline"])
         )
         self.client.force_login(self.host)
-        self.assertContains(
-            self.client.get(self.detail_url), f'action="{self.contact_url}"'
-        )
-        self.client.logout()
-        response = self.client.get(self.detail_url)
-        self.assertNotContains(response, f'action="{self.contact_url}"')
-        self.assertContains(response, "Log in to Contact")
+        page = self.client.get(reverse("message_user", args=[self.fan.pk]))
+        self.assertContains(page, "Send Contact Request")

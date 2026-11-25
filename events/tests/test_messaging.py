@@ -70,12 +70,13 @@ class MessagingViewTests(TestCase):
             status=ContactRequest.Status.ACCEPTED,
         )
 
-    def test_profile_offers_send_message_for_shared_attendee(self):
+    def test_profile_offers_request_message_for_shared_attendee(self):
+        """Approval is the default, so the profile asks for a request (#191)."""
         response = self.client.get(
             reverse("public_profile", args=[self.recipient.username])
         )
 
-        self.assertContains(response, "Send Message")
+        self.assertContains(response, "Request Message")
         self.assertContains(
             response,
             reverse("message_user", args=[self.recipient.pk]),
@@ -110,8 +111,11 @@ class MessagingViewTests(TestCase):
                     model = Registration if registered else EventInterest
                     model.objects.create(event=self.event, user=member)
 
-                self.assertContains(self.client.get(detail_url), f'action="{send_url}"')
-                self.assertContains(self.client.get(profile_url), "Send Message")
+                # The event page links to the profile; messaging starts there.
+                detail = self.client.get(detail_url)
+                self.assertNotContains(detail, f'action="{send_url}"')
+                self.assertContains(detail, f'href="{profile_url}"')
+                self.assertContains(self.client.get(profile_url), "Request Message")
                 self.assertContains(self.client.get(message_url), "Community Walk")
 
                 response = self.client.post(send_url, {"message": "Hello"})

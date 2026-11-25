@@ -158,6 +158,17 @@ def notify_contact_request(contact_request):
     return notification
 
 
+def notify_contact_accepted(contact_request):
+    """Tell the sender that their contact request was accepted (#191)."""
+    recipient = contact_request.recipient.get_display_name()
+    return Notification.objects.create(
+        recipient_id=contact_request.sender_id,
+        event_id=contact_request.event_id,
+        subject=f"{recipient} accepted your contact request"[:SUBJECT_MAX_LENGTH],
+        body=f"You can now message {recipient}.",
+    )
+
+
 def describe_when(start, end):
     """Describe an event's date and time in New York time, e.g. for emails."""
     if not start:

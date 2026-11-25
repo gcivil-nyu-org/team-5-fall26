@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Case, Exists, F, OuterRef, Q, Sum, Value, When
+from django.db.models import Case, Exists, F, OuterRef, Sum, Value, When
 from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -32,7 +32,6 @@ from django.utils.http import (
 )
 
 from accounts.ban_services import get_active_ban
-from accounts.models import UserBan
 
 from .calendar_export import (
     can_add_to_calendar,
@@ -721,9 +720,6 @@ class EventDetailView(DetailView):
         )
 
         context["user_is_registered"] = current_registration is not None
-        context["user_participates"] = (
-            current_interest is not None or current_registration is not None
-        )
         context["current_registration"] = current_registration
         context["party_size_choices"] = range(1, Registration.MAX_PARTY_SIZE + 1)
 
@@ -748,56 +744,18 @@ class EventDetailView(DetailView):
 
         self.add_host_rating_context(context, current_registration)
 
-        # Contact requests are per pair of users, even if they began at
-        # another event or the current viewer was the recipient.
-        request_by_recipient = {}
-
-        if is_authenticated:
-            requests = (
-                ContactRequest.objects.filter(
-                    Q(sender=user) | Q(recipient=user),
-                    status__in=(
-                        ContactRequest.Status.PENDING,
-                        ContactRequest.Status.ACCEPTED,
-                    ),
-                )
-                .select_related("event")
-                .order_by("-created_at", "-pk")
-            )
-
-            for contact_request in requests:
-                other_user_id = (
-                    contact_request.recipient_id
-                    if contact_request.sender_id == user.pk
-                    else contact_request.sender_id
-                )
-                request_by_recipient.setdefault(other_user_id, contact_request)
-
         # Include all users who have chosen to share their profiles.
         # Do not exclude the current user: their avatar should also move
         # between the two groups when they change their intention.
-        # Do not offer new contact requests to recipients with active bans.
-        active_bans = UserBan.objects.filter(
-            user_id=OuterRef("user_id"),
-            lifted_at__isnull=True,
-        )
-        active_bans = active_bans.filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
-        )
+        # Cards only link to profiles; messaging starts there (#191).
         visible_interests = (
             interests.filter(user__share_profile_with_attendees=True)
             .select_related("user")
-            .annotate(recipient_banned=Exists(active_bans))
             .order_by("user__display_name", "user__username")
         )
 
         attendees = [
-            {
-                "user": interest.user,
-                "status": interest.status,
-                "contact_request": request_by_recipient.get(interest.user_id),
-                "recipient_banned": interest.recipient_banned,
-            }
+            {"user": interest.user, "status": interest.status}
             for interest in visible_interests
         ]
 
@@ -810,16 +768,9 @@ class EventDetailView(DetailView):
 
         context["attendees"] = attendees
 
-        # Registered attendees use the same contact controls as interested users.
-        registered_users = (
-            registrations.filter(user__share_profile_with_attendees=True)
-            .annotate(recipient_banned=Exists(active_bans))
-            .order_by("user__display_name", "user__username")
-        )
-        for registration in registered_users:
-            registration.contact_request = request_by_recipient.get(
-                registration.user_id
-            )
+        registered_users = registrations.filter(
+            user__share_profile_with_attendees=True
+        ).order_by("user__display_name", "user__username")
         context["registered_users"] = registered_users
 
         # Discover only opted-in profiles for active, related events.

@@ -108,7 +108,9 @@ class ContactNotificationTests(NotifyTestCase):
         self.client.post(self.response_url(latest))
         self.client.force_login(self.host)
         self.client.post(self.send_url)
-        self.assertEqual(Notification.objects.count(), 2)
+        # Two request notices for the fan, plus the host's acceptance notice.
+        self.assertEqual(Notification.objects.count(), 3)
+        self.assertEqual(self.host.notifications.count(), 1)
 
     def test_profile_link_for_each_state_and_message_only_when_accepted(self):
         self.host.display_name = "Park Pals"
@@ -267,7 +269,11 @@ class ContactNotificationTests(NotifyTestCase):
         self.assertContains(page, "Status: Declined")
         self.assertNotContains(page, "New</span>")
         self.assertNotIn("<button", without_site_header(page))
-        self.assertFalse(self.host.notifications.exists())
+        # The host only hears back about the three accepted requests (#191).
+        self.assertEqual(
+            list(self.host.notifications.values_list("subject", flat=True)),
+            [f"{self.fan.get_display_name()} accepted your contact request"] * 3,
+        )
         self.assertNotContains(self.client.get(reverse("landing")), "1 new")
         self.assertEqual(mail.outbox, [])
 

@@ -23,7 +23,7 @@ from .models import (
     EventPost,
     Notification,
 )
-from .notifications import notify_contact_request
+from .notifications import notify_contact_accepted, notify_contact_request
 
 CLOSED_EVENT = (
     "This event no longer takes new activity. " "Browse upcoming events instead."
@@ -316,6 +316,7 @@ def respond_to_contact_request(request, request_id, action):
                 contact_request.sender,
                 contact_request.recipient,
             )
+            notify_contact_accepted(contact_request)
 
         Notification.objects.filter(
             contact_request=contact_request,

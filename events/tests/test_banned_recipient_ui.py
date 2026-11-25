@@ -50,10 +50,10 @@ class BannedRecipientContactTests(TestCase):
         )
 
     def test_event_page_hides_contact_form_for_banned_recipient(self):
-        """The event attendee card explains why requests are unavailable."""
+        """The attendee card only links to the profile (#191)."""
         response = self.client.get(reverse("event_detail", args=[self.event.pk]))
         self.assertContains(
-            response, "Contact requests are currently unavailable for this member."
+            response, reverse("public_profile", args=[self.recipient.username])
         )
         self.assertNotContains(
             response,
@@ -107,15 +107,10 @@ class BannedRecipientContactTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Conversation.objects.exists())
 
-    def test_lifted_ban_restores_both_contact_forms(self):
+    def test_lifted_ban_restores_the_profile_contact_flow(self):
         """An old ban must not keep the recipient unavailable forever."""
         self.ban.lifted_at = timezone.now()
         self.ban.save(update_fields=["lifted_at"])
-        response = self.client.get(reverse("event_detail", args=[self.event.pk]))
-        self.assertContains(
-            response,
-            reverse("send_contact_request", args=[self.event.pk, self.recipient.pk]),
-        )
         profile = self.client.get(
             reverse("public_profile", args=[self.recipient.username])
         )

@@ -14,7 +14,7 @@ from django.views.generic import ListView
 
 from accounts.ban_responses import BAN_MESSAGE
 from accounts.ban_services import get_active_ban
-from accounts.models import User
+from accounts.models import ContactPermission, User
 
 from .contact_services import create_contact_request, shared_upcoming_events
 from .conversation_services import get_accessible_conversation, has_accepted_contact
@@ -119,6 +119,24 @@ def message_user(request, user_id):
         .select_related("event")
         .first()
     )
+
+    if request.method == "POST" and request.POST.get("direct"):
+        # Members who allow direct contact can be messaged straight away
+        # from their profile; no introduction form is needed (#191).
+        event = shared_events.first()
+        if recipient.contact_permission == ContactPermission.OPEN and event:
+            contact_request, _ = create_contact_request(
+                event, request.user, recipient, ""
+            )
+            if (
+                contact_request is not None
+                and contact_request.status == ContactRequest.Status.ACCEPTED
+            ):
+                conversation, _ = Conversation.get_or_create_for_users(
+                    request.user, recipient
+                )
+                return redirect("conversation", conversation_id=conversation.pk)
+        return redirect("message_user", user_id=recipient.pk)
 
     if request.method == "POST":
         form = ContactStartForm(

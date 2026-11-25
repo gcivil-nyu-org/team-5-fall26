@@ -350,5 +350,5 @@ class BanUITests(TestCase):
         self.client.logout()
         response = self.client.get(reverse("event_detail", args=[self.event.pk]))
         self.assertFalse(response.context["viewer_banned"])
-        self.assertContains(response, "Log in to Contact")
+        self.assertContains(response, "See Details")
         self.assertContains(response, 'id="parks-assistant"')

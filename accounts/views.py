@@ -28,6 +28,7 @@ from events.similar_interests import public_match_for_event
 from events.photos import gallery_context
 from .ban_services import get_active_ban
 from .forms import AccountSettingsForm, LoginForm, RegistrationForm
+from .models import ContactPermission
 
 
 class AccountSettingsView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
@@ -166,6 +167,14 @@ class PublicProfileView(LoginRequiredMixin, DetailView):
                             event, profile_user, self.request.user
                         )
             context["similar_interest_label"] = related_label
+            # Open chats and direct-contact members get Send Message;
+            # everyone else gets Request Message (#191).
+            context["has_accepted_contact"] = has_accepted_request
+            context["direct_contact"] = (
+                profile_user.contact_permission == ContactPermission.OPEN
+                and has_shared_upcoming_event
+                and not has_pending_request
+            )
         else:
             context["can_message"] = False
             context["similar_interest_label"] = None
