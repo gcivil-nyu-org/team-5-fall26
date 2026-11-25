@@ -24,6 +24,7 @@ NYC = ZoneInfo("America/New_York")
 CLOSED_EVENT_MESSAGE = (
     "This event no longer takes new activity. " "Browse upcoming events instead."
 )
+CANCELLED_MESSAGE = "This event was cancelled, so new comments are closed."
 
 
 def make_event(guid="community-1", **kwargs):
@@ -154,8 +155,21 @@ class EventDiscussionViewTests(CommunityViewTestBase):
         self.assertRedirects(response, self.detail_url())
         self.assertEqual(EventPost.objects.count(), 0)
 
-    def test_post_on_closed_event_is_not_saved(self):
+    def test_post_on_completed_event_is_saved(self):
+        """#209: the page promises comments on completed events."""
         self.event.status = Event.Status.DONE
+        self.event.save()
+
+        response = self.client.post(
+            reverse("create_event_post", args=[self.event.pk]),
+            {"body": "Hello"},
+        )
+
+        self.assertRedirects(response, self.detail_url())
+        self.assertEqual(EventPost.objects.get().body, "Hello")
+
+    def test_post_on_cancelled_event_is_not_saved(self):
+        self.event.status = Event.Status.CANCELLED
         self.event.save()
 
         response = self.client.post(
@@ -167,7 +181,7 @@ class EventDiscussionViewTests(CommunityViewTestBase):
         self.assertEqual(EventPost.objects.count(), 0)
         self.assertEqual(
             [str(message) for message in get_messages(response.wsgi_request)],
-            [CLOSED_EVENT_MESSAGE],
+            [CANCELLED_MESSAGE],
         )
 
     def test_create_reply(self):
@@ -203,7 +217,7 @@ class EventDiscussionViewTests(CommunityViewTestBase):
         self.assertRedirects(response, self.detail_url())
         self.assertEqual(EventReply.objects.count(), 0)
 
-    def test_reply_to_closed_event_is_not_saved(self):
+    def test_reply_to_completed_event_is_saved(self):
         post = EventPost.objects.create(
             event=self.event,
             author=self.bob,
@@ -218,15 +232,36 @@ class EventDiscussionViewTests(CommunityViewTestBase):
         )
 
         self.assertRedirects(response, self.detail_url())
+        self.assertEqual(EventReply.objects.get().body, "Reply")
+
+    def test_reply_to_cancelled_event_is_not_saved(self):
+        post = EventPost.objects.create(
+            event=self.event,
+            author=self.bob,
+            body="Question",
+        )
+        self.event.status = Event.Status.CANCELLED
+        self.event.save()
+
+        response = self.client.post(
+            reverse("create_event_reply", args=[post.pk]),
+            {"body": "Reply"},
+        )
+
+        self.assertRedirects(response, self.detail_url())
         self.assertEqual(EventReply.objects.count(), 0)
         self.assertEqual(
             [str(message) for message in get_messages(response.wsgi_request)],
-            [CLOSED_EVENT_MESSAGE],
+            [CANCELLED_MESSAGE],
         )
 
 
 class ClosedEventActivityTests(CommunityViewTestBase):
-    """A stale upcoming status never reopens a finished or cancelled event."""
+    """A stale upcoming status never reopens a finished or cancelled event.
+
+    Discussion is the exception: it stays open after an event ends and
+    closes only when the event is cancelled.
+    """
 
     def test_closed_events_reject_interest_posts_replies_and_contact(self):
         old_post = EventPost.objects.create(
@@ -253,6 +288,8 @@ class ClosedEventActivityTests(CommunityViewTestBase):
             ),
         )
         for label, title, start, end in scenarios:
+            cancelled = label.startswith("cancelled")
+            discussion_message = [CANCELLED_MESSAGE] if cancelled else []
             with self.subTest(scenario=label):
                 self.event.title = title
                 self.event.start_time = start
@@ -263,14 +300,20 @@ class ClosedEventActivityTests(CommunityViewTestBase):
                 )
                 self.assertEqual(self.event.status, Event.Status.UPCOMING)
                 actions = (
-                    (reverse("toggle_event_interest", args=[self.event.pk]), {}),
+                    (
+                        reverse("toggle_event_interest", args=[self.event.pk]),
+                        {},
+                        [CLOSED_EVENT_MESSAGE],
+                    ),
                     (
                         reverse("create_event_post", args=[self.event.pk]),
                         {"body": "A new comment"},
+                        discussion_message or ["Comment posted."],
                     ),
                     (
                         reverse("create_event_reply", args=[old_post.pk]),
                         {"body": "A new reply"},
+                        discussion_message or ["Reply posted."],
                     ),
                     (
                         reverse(
@@ -278,9 +321,10 @@ class ClosedEventActivityTests(CommunityViewTestBase):
                             args=[self.event.pk, self.bob.pk],
                         ),
                         {"message": "Hello"},
+                        [CLOSED_EVENT_MESSAGE],
                     ),
                 )
-                for url, data in actions:
+                for url, data, expected in actions:
                     response = self.client.post(url, data)
                     self.assertRedirects(response, self.detail_url())
                     self.assertEqual(
@@ -288,12 +332,18 @@ class ClosedEventActivityTests(CommunityViewTestBase):
                             str(message)
                             for message in get_messages(response.wsgi_request)
                         ],
-                        [CLOSED_EVENT_MESSAGE],
+                        expected,
                     )
                 self.assertFalse(EventInterest.objects.exists())
-                self.assertEqual(EventPost.objects.count(), 1)
-                self.assertFalse(EventReply.objects.exists())
                 self.assertFalse(ContactRequest.objects.exists())
+                if cancelled:
+                    self.assertEqual(EventPost.objects.count(), 1)
+                    self.assertFalse(EventReply.objects.exists())
+                else:
+                    self.assertEqual(EventPost.objects.count(), 2)
+                    self.assertEqual(EventReply.objects.count(), 1)
+                    EventPost.objects.exclude(pk=old_post.pk).delete()
+                    EventReply.objects.all().delete()
 
     def test_discussion_stays_open_while_event_is_underway(self):
         """A past start time must not close discussions before the end time."""
