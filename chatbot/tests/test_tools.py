@@ -168,6 +168,21 @@ class MyActivityToolTests(TestCase):
         )
         self.assertEqual(result["next_event"]["attendance"], "Registered")
 
+    def test_feed_cancelled_registrations_are_not_the_next_event(self):
+        user = make_user("feed_cancellation")
+        for n, title in enumerate(("CANCELLED: Park Run", "CANCELED - Bird Walk")):
+            cancelled = make_event(f"feed-cancel-{n}", title, days=1 + n)
+            Registration.objects.create(event=cancelled, user=user)
+        active = make_event("feed-active", "Lake Paddle", days=5)
+        Registration.objects.create(event=active, user=user)
+
+        result = Toolbox(user).get_my_activity()
+        self.assertEqual(result["next_event"]["title"], "Lake Paddle")
+        self.assertEqual(
+            [event["title"] for event in result["planned_events"]],
+            ["Lake Paddle"],
+        )
+
     def test_anonymous_visitors_are_asked_to_sign_in(self):
         result = Toolbox(AnonymousUser()).get_my_activity()
         self.assertEqual(result["sign_in_page"], "/accounts/login/")
